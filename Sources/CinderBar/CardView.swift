@@ -1,5 +1,5 @@
 import SwiftUI
-import EmberCore
+import CinderBarCore
 
 /// One subscription: verdict, what to do, headline, burndown, the instruction,
 /// every quota window, burn, token mix and spend by model.
@@ -20,7 +20,7 @@ struct CardView: View {
             headline(live)
             if let plan = standing.plan, let live {
                 BurndownView(agent: agent, plan: plan, live: live, samples: store.history.samples(agent, plan.name), now: now)
-                    .frame(height: 70)
+                    .frame(height: ui(70))
                 instruction(live)
             }
             windows
@@ -30,11 +30,12 @@ struct CardView: View {
                 models
             } else {
                 Text("nothing burned in the last \(spanWords(store.snapshot.windowMs))")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.system(size: ui(11))).foregroundStyle(.secondary)
             }
         }
         .padding(12)
-        .background(tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color(nsColor: Palette.card), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: Palette.cardEdge)))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(glowColor(live), lineWidth: glowColor(live) == .clear ? 0 : 1.5))
         .overlay(alignment: .top) { Rectangle().fill(tint).frame(height: 2).clipShape(RoundedRectangle(cornerRadius: 1)).padding(.horizontal, 10) }
     }
@@ -43,8 +44,8 @@ struct CardView: View {
 
     private func title(_ live: PaceLive?) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(agent.title).font(.system(size: 14, weight: .heavy, design: .rounded)).foregroundStyle(tint)
-            if let plan = stats.limits.plan { Text(plan.uppercased()).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary) }
+            Text(agent.title).font(.system(size: ui(14), weight: .heavy, design: .rounded)).foregroundStyle(tint)
+            if let plan = stats.limits.plan { Text(plan.uppercased()).font(.system(size: ui(10), weight: .semibold)).foregroundStyle(.secondary) }
             Spacer()
             if let live { Pill(text: verdict(live), color: verdictColor(live)) }
         }
@@ -55,10 +56,10 @@ struct CardView: View {
         st.live = st.plan?.live(now: now)
         let line = todoLine(st, now: now)
         return VStack(alignment: .leading, spacing: 1) {
-            Text(line.headline).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundStyle(Palette.tone(line.tone))
-            Text(line.detail).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
+            Text(line.headline).font(.system(size: ui(13), weight: .bold, design: .monospaced)).foregroundStyle(Palette.tone(line.tone))
+            Text(line.detail).font(.system(size: ui(10.5))).foregroundStyle(.secondary).lineLimit(2)
             if let status = stats.limits.status {
-                Text(status).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Color(nsColor: Palette.bad))
+                Text(status).font(.system(size: ui(10.5), weight: .semibold)).foregroundStyle(Color(nsColor: Palette.bad))
             }
         }
     }
@@ -71,13 +72,13 @@ struct CardView: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if budget, let live {
-                    Text("\(Int((live.used * 100).rounded()))%").font(.system(size: 30, weight: .heavy, design: .rounded))
+                    Text("\(Int((live.used * 100).rounded()))%").font(.system(size: ui(30), weight: .heavy, design: .rounded))
                     Text("of the \(standing.plan?.name.lowercased() ?? "plan") plan used · \(Int((live.elapsed * 100).rounded()))% of the clock gone")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.system(size: ui(11))).foregroundStyle(.secondary)
                 } else {
-                    Text(tokenWords(stats.total)).font(.system(size: 30, weight: .heavy, design: .rounded))
+                    Text(tokenWords(stats.total)).font(.system(size: ui(30), weight: .heavy, design: .rounded))
                     Text("tokens · last \(spanWords(store.snapshot.windowMs)) · \(stats.turns) turns · \(stats.sessions) sessions")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .font(.system(size: ui(11))).foregroundStyle(.secondary)
                 }
             }
             .contentShape(Rectangle())
@@ -103,7 +104,7 @@ struct CardView: View {
                 }
             }
         }
-        .font(.system(size: 11))
+        .font(.system(size: ui(11)))
     }
 
     @ViewBuilder
@@ -128,7 +129,7 @@ struct CardView: View {
                 Metric(label: spanWords(store.snapshot.windowMs).uppercased(), value: "\(tokenWords(Int(stats.perMinWindow)))/min")
             }
             BucketBars(buckets: stats.buckets, agent: agent, ceiling: store.lanes.compactMap { store.snapshot.agents[$0]?.peakBucket }.max() ?? 0)
-                .frame(height: 26)
+                .frame(height: ui(26))
         }
     }
 
@@ -144,7 +145,7 @@ struct CardView: View {
                 Metric(label: "OUTPUT", value: tokenWords(s.output))
             }
             Text(String(format: "cache reads %@ · %.0f%% of everything the model took in", tokenWords(s.cacheRead), readShare))
-                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                .font(.system(size: ui(10.5))).foregroundStyle(.secondary)
         }
     }
 
@@ -156,16 +157,16 @@ struct CardView: View {
             ForEach(Array(shown)) { m in
                 let share = stats.total > 0 ? Double(m.tokens) / Double(stats.total) : 0
                 HStack(spacing: 6) {
-                    Text(m.model).font(.system(size: 11, design: .monospaced)).lineLimit(1).frame(width: 140, alignment: .leading)
+                    Text(m.model).font(.system(size: ui(11), design: .monospaced)).lineLimit(1).frame(width: ui(140), alignment: .leading)
                     GeometryReader { g in
                         Capsule().fill(tint.opacity(0.75)).frame(width: max(2, g.size.width * share))
                     }
                     .frame(height: 5)
-                    Text(tokenWords(m.tokens)).font(.system(size: 11, design: .monospaced)).frame(width: 48, alignment: .trailing)
+                    Text(tokenWords(m.tokens)).font(.system(size: ui(11), design: .monospaced)).frame(width: ui(48), alignment: .trailing)
                 }
             }
             if list.count > shown.count {
-                Text("+ \(list.count - shown.count) more").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Text("+ \(list.count - shown.count) more").font(.system(size: ui(10.5))).foregroundStyle(.secondary)
             }
         }
     }
@@ -187,10 +188,13 @@ struct CardView: View {
     /// are enough, otherwise the average since the window opened.
     private func projectedRate(_ live: PaceLive) -> Double {
         guard let plan = standing.plan else { return 0 }
-        let r = store.history.rate(agent, plan.name, now: now, lookbackMs: 6 * hourMs)
+        // A burst of a few minutes is not a rate to predict a week from.
+        let r = store.history.rate(agent, plan.name, now: now, lookbackMs: 6 * hourMs, minSpanMs: hourMs)
         if r > 0 { return r }
+        // The average since the window opened only means something once a
+        // tenth of the window has gone; before that one busy hour is the week.
         let elapsedMs = live.elapsed * live.windowMs
-        return elapsedMs > hourMs ? live.used / elapsedMs : 0
+        return live.elapsed >= 0.10 ? live.used / elapsedMs : 0
     }
 
     /// A card lights up for one reason, chosen in SETUP.
@@ -212,7 +216,7 @@ struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        Text(text).font(.system(size: 9.5, weight: .bold)).kerning(1).foregroundStyle(.tertiary)
+        Text(text).font(.system(size: ui(9.5), weight: .bold)).kerning(1).foregroundStyle(.secondary)
     }
 }
 
@@ -220,7 +224,7 @@ struct Pill: View {
     let text: String
     let color: Color
     var body: some View {
-        Text(text).font(.system(size: 10, weight: .heavy)).kerning(0.6)
+        Text(text).font(.system(size: ui(10), weight: .heavy)).kerning(0.6)
             .padding(.horizontal, 7).padding(.vertical, 2)
             .foregroundStyle(color)
             .background(color.opacity(0.15), in: Capsule())
@@ -232,8 +236,8 @@ struct Metric: View {
     let value: String
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-            Text(value).font(.system(size: 12, weight: .semibold, design: .monospaced))
+            Text(label).font(.system(size: ui(9), weight: .semibold)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: ui(12), weight: .semibold, design: .monospaced))
         }
     }
 }
@@ -249,14 +253,14 @@ struct WindowRow: View {
         let live = window.live(now: now)
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(window.name).font(.system(size: 11, weight: .semibold))
+                Text(window.name).font(.system(size: ui(11), weight: .semibold))
                 Spacer()
                 if window.rolledOver(now: now) {
-                    Text("rolled over").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("rolled over").font(.system(size: ui(11))).foregroundStyle(.secondary)
                 } else if let p = window.percent {
-                    Text("\(Int((p * 100).rounded()))%").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    Text("\(Int((p * 100).rounded()))%").font(.system(size: ui(11), weight: .semibold, design: .monospaced))
                 } else {
-                    Text("--").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("--").font(.system(size: ui(11))).foregroundStyle(.secondary)
                 }
             }
             GeometryReader { g in
@@ -270,7 +274,7 @@ struct WindowRow: View {
                 }
             }
             .frame(height: 6)
-            Text(caption(live)).font(.system(size: 10)).foregroundStyle(heat?.hot == true ? Color(nsColor: Palette.warn) : .secondary)
+            Text(caption(live)).font(.system(size: ui(10))).foregroundStyle(heat?.hot == true ? Color(nsColor: Palette.warn) : .secondary)
         }
     }
 
@@ -357,7 +361,7 @@ struct BurndownView: View {
 
             // Projection at the average rate since the window opened.
             let elapsedMs = now - start
-            if elapsedMs > hourMs, live.used > 0, !live.spent {
+            if live.elapsed >= 0.10, live.used > 0, !live.spent {
                 let rate = live.used / elapsedMs
                 let dry = now + (1 - live.used) / rate
                 let end = min(dry, live.resetsMs)
@@ -366,8 +370,8 @@ struct BurndownView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            Text(samples.count < 2 ? "\(plan.name.uppercased()) · history fills in as Ember runs" : plan.name.uppercased())
-                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary).padding(4)
+            Text(samples.count < 2 ? "\(plan.name.uppercased()) · history fills in as Cinder Bar runs" : plan.name.uppercased())
+                .font(.system(size: ui(9), weight: .semibold)).foregroundStyle(.secondary).padding(4)
         }
     }
 }

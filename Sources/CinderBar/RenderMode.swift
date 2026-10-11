@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `Ember --render DIR`: waits for one collector run and one limits probe,
+/// `CinderBar --render DIR`: waits for one collector run and one limits probe,
 /// then writes strip.png and cockpit.png. For screenshots and checking the UI
 /// without a screen recording permission.
 enum RenderMode {

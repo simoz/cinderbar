@@ -1,7 +1,7 @@
 import Foundation
-import EmberCore
+import CinderBarCore
 
-/// `Ember --print`: one collector run, a plain summary, exit. For checking what
+/// `CinderBar --print`: one collector run, a plain summary, exit. For checking what
 /// the strip is seeing without opening the panel.
 enum PrintMode {
     static func runIfAsked() {

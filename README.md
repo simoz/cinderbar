@@ -1,9 +1,9 @@
-# Ember
+# Cinder Bar
 
-> **Ember is a macOS port of [Burn Bar](https://github.com/nixfred/burnbar),
+> **Cinder Bar is a macOS port of [Burn Bar](https://github.com/nixfred/burnbar),
 > the Omarchy bar plugin by [nixfred](https://github.com/nixfred).**
 > The idea, the pacing and guidance rules, the transcript parsing rules and the
-> visual design all come from Burn Bar. Ember re-implements them as a native
+> visual design all come from Burn Bar. Cinder Bar re-implements them as a native
 > Swift menu-bar app for the Mac. It is an independent port and is not
 > affiliated with or endorsed by the original author. MIT licensed, like the
 > original.
@@ -14,7 +14,7 @@ Codex), turns it into one heat map, and tells you **what to do**: which
 subscription has budget in the bank, which one needs a rest and until when, and
 which one to reach for next.
 
-![Ember in the menu bar](docs/img/menubar.png)
+![Cinder Bar in the menu bar](docs/img/menubar.png)
 
 ## The strip
 
@@ -41,6 +41,8 @@ next, in that sub's colour.
 Click the strip. A guidance banner (`USE CODEX NEXT`, `KEEP USING CLAUDE`,
 `USE CODEX NOW: use it or lose it`) sits above one card per subscription:
 
+![The cockpit: a guidance banner, then one card per subscription](docs/img/cockpit.png)
+
 - **Verdict**: ON TRACK, AT PACE, OVER or WAY OVER. Over starts 5% past an
   even spend.
 - **What to do**: `BANKED 49%` with a running clock of time in the bank,
@@ -53,6 +55,8 @@ Click the strip. A guidance banner (`USE CODEX NEXT`, `KEEP USING CLAUDE`,
   tick and the reset. A window whose reset has passed reads "rolled over" and
   its figure is withheld.
 - **Burn, token mix, by model.**
+
+![SETUP](docs/img/setup.png)
 
 SETUP (top right of the panel) holds every option: lanes, strip window and
 cell count, refresh rates, card headline, glow reason, 5-hour session windows
@@ -78,29 +82,46 @@ These are Burn Bar's rules, ported unchanged and covered by tests:
 
 ## Install
 
-You need macOS 14 or later and the Xcode Command Line Tools
+Cinder Bar needs macOS 14 or later.
+
+**From a release.** Download `Cinder-Bar-<version>.zip` from
+[Releases](https://github.com/simoz/cinderbar/releases), unzip it and move
+`Cinder Bar.app` to `/Applications`. The app is not notarised, so macOS blocks
+it the first time it opens. Clear the quarantine flag once:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Cinder Bar.app"
+```
+
+You can also go to System Settings › Privacy & Security and choose
+**Open Anyway** after the first attempt. Then tick **Launch at login** in SETUP
+to keep it running.
+
+**From source.** You need the Xcode Command Line Tools
 (`xcode-select --install`). Full Xcode is not required.
 
 ```sh
-./scripts/bundle.sh          # builds dist/Ember.app
-open dist/Ember.app
+./scripts/bundle.sh          # builds "dist/Cinder Bar.app"
+open "dist/Cinder Bar.app"
 ```
 
-Move `dist/Ember.app` to `/Applications` and tick **Launch at login** in SETUP
-to keep it running. While developing, use `swift run Ember`.
+While developing, use `swift run CinderBar`.
 
 Two diagnostic modes:
 
 ```sh
-swift run Ember --print            # one collector run, a text summary, exit
-swift run Ember --render out/      # writes strip.png and cockpit-*.png
+swift run CinderBar --print            # one collector run, a text summary, exit
+swift run CinderBar --render out/      # writes strip.png and cockpit-*.png
 ```
+
+For screenshots of the real panel, `--show` opens the cockpit at launch and
+`--show-setup` opens SETUP.
 
 Tests run without Xcode, because the Command Line Tools ship neither XCTest nor
 the swift-testing macros:
 
 ```sh
-swift run ember-checks
+swift run cinderbar-checks
 ```
 
 ## Where the numbers come from
@@ -111,26 +132,26 @@ swift run ember-checks
   counts fresh input, cache writes and output. Cache reads are carried
   separately for the token mix.
 - **Codex**: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. The `token_count`
-  events carry a cumulative counter, and Ember counts the deltas. The same
+  events carry a cumulative counter, and Cinder Bar counts the deltas. The same
   events carry `rate_limits` (the 5-hour and weekly windows, and the plan),
   which is Codex's plan meter.
-- **Claude limits**: Claude Code writes no quota into its transcripts, so Ember
+- **Claude limits**: Claude Code writes no quota into its transcripts, so Cinder Bar
   asks the endpoint that Claude Code's own `/usage` uses
   (`api.anthropic.com/api/oauth/usage`). It uses the sign-in that Claude Code
   already keeps in the login keychain, read through `/usr/bin/security`.
   The endpoint is undocumented and may change. Every field is read defensively,
   and anything that does not parse is withheld rather than shown as 0%. You can
-  turn this off in SETUP. Ember then shows Claude in tokens only.
+  turn this off in SETUP. Cinder Bar then shows Claude in tokens only.
 
 Scanning is incremental. An unchanged file replays its cached contribution. A
 file that grew is read from the previous offset, but only if the 48 bytes
-before that offset still match. Ember's state lives in
-`~/Library/Application Support/Ember/`: the scan cache and the history of
+before that offset still match. Cinder Bar's state lives in
+`~/Library/Application Support/CinderBar/`: the scan cache and the history of
 measured percentages that the burndown is drawn from.
 
 ## Privacy
 
-Ember reads your Claude and Codex transcripts on this Mac to count tokens. It
+Cinder Bar reads your Claude and Codex transcripts on this Mac to count tokens. It
 keeps numbers, model names and message ids, never message text. The only
 network request it makes is the Claude limits probe described above. That
 request goes only to `api.anthropic.com`, using the token Claude Code already
@@ -139,21 +160,23 @@ would rotate Claude Code's own sign-in.
 
 ## Differences from Burn Bar
 
-Ember covers part of Burn Bar so far:
+Cinder Bar covers part of Burn Bar so far:
 
 - Lanes for Claude and Codex only. Grok, Kimi, Zcode and the local
   Ollama/GPU lane are not ported yet.
 - No ember flicker, impact shockwave or sparks yet. The strip redraws on
   every refresh but does not animate.
-- The burndown line is drawn from percentages Ember itself has measured, so it
+- The burndown line is drawn from percentages Cinder Bar itself has measured, so it
   fills in over time after install.
 
 ## Credits
 
-[Burn Bar](https://github.com/nixfred/burnbar) by nixfred, the Omarchy plugin
-this is a port of. Go and star it.
+- Cinder Bar by **Simone Merli** ([@simoz](https://github.com/simoz)).
+- [Burn Bar](https://github.com/nixfred/burnbar) by
+  [nixfred](https://github.com/nixfred), the Omarchy plugin this is a port of.
+  Go and star it.
 
 ## License
 
-MIT. See [LICENSE](LICENSE), which carries both the Ember copyright and the
+MIT. See [LICENSE](LICENSE), which carries both the Cinder Bar copyright and the
 original Burn Bar copyright.

@@ -48,9 +48,10 @@ public struct PaceHistory: Codable, Equatable, Sendable {
 
     /// The percentage's climb per millisecond over the last `lookbackMs`,
     /// or 0 when there is not enough to say.
-    public func rate(_ agent: Agent, _ name: String, now: Double, lookbackMs: Double = hourMs) -> Double {
+    public func rate(_ agent: Agent, _ name: String, now: Double, lookbackMs: Double = hourMs,
+                     minSpanMs: Double = 5 * 60_000) -> Double {
         let s = samples(agent, name).filter { $0.ts >= now - lookbackMs }
-        guard let a = s.first, let b = s.last, b.ts - a.ts >= 5 * 60_000, b.percent > a.percent else { return 0 }
+        guard let a = s.first, let b = s.last, b.ts - a.ts >= minSpanMs, b.percent > a.percent else { return 0 }
         return (b.percent - a.percent) / (b.ts - a.ts)
     }
 

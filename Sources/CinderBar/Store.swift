@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 import ServiceManagement
-import EmberCore
+import CinderBarCore
 
 /// Owns the collector off the main thread.
 actor CollectorBox {
@@ -24,6 +24,7 @@ actor CollectorBox {
 
 enum Headline: String, CaseIterable { case budget, tokens }
 enum GlowReason: String, CaseIterable { case overPace, burning, spent, none }
+enum PanelTheme: String, CaseIterable { case dark, light, system }
 
 @MainActor
 @Observable
@@ -45,6 +46,7 @@ final class Store {
     var showSessionWindows: Bool { didSet { save("showSessionWindows", showSessionWindows) } }
     var adviceChip: Bool { didSet { save("adviceChip", adviceChip); recompute() } }
     var glow: GlowReason { didSet { save("glow", glow.rawValue) } }
+    var theme: PanelTheme { didSet { save("theme", theme.rawValue); onThemeChange?(theme) } }
 
     // MARK: Live state
 
@@ -58,6 +60,9 @@ final class Store {
     var showingSetup = false
     var launchAtLogin = SMAppService.mainApp.status == .enabled
 
+    /// The status item's button follows this; set by the app delegate.
+    @ObservationIgnored var onStripChange: ((NSImage, String) -> Void)?
+    @ObservationIgnored var onThemeChange: ((PanelTheme) -> Void)?
     @ObservationIgnored private var claudeReading: AgentLimits?
     @ObservationIgnored private var dismissed: [Agent: (stage: Int, reset: Double)] = [:]
     @ObservationIgnored private let box: CollectorBox
@@ -66,7 +71,7 @@ final class Store {
     @ObservationIgnored private var limitsTask: Task<Void, Never>?
 
     static var supportDir: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Ember")
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("CinderBar")
     }
 
     init() {
@@ -74,7 +79,7 @@ final class Store {
         d.register(defaults: [
             "windowMinutes": 360, "buckets": 12, "refreshSec": 5, "limitsRefreshSec": 300,
             "claudeLane": true, "codexLane": true, "claudeLimits": true, "headline": "budget",
-            "showSessionWindows": false, "adviceChip": true, "glow": "overPace",
+            "showSessionWindows": false, "adviceChip": true, "glow": "overPace", "theme": "dark",
         ])
         windowMinutes = d.integer(forKey: "windowMinutes")
         buckets = d.integer(forKey: "buckets")
@@ -87,9 +92,15 @@ final class Store {
         showSessionWindows = d.bool(forKey: "showSessionWindows")
         adviceChip = d.bool(forKey: "adviceChip")
         glow = GlowReason(rawValue: d.string(forKey: "glow") ?? "") ?? .overPace
+        theme = PanelTheme(rawValue: d.string(forKey: "theme") ?? "") ?? .dark
 
         // State lives in Application Support, never beside the app.
         let dir = Store.supportDir
+        // Carry the scan cache and pace history over from the app's old name.
+        let legacy = dir.deletingLastPathComponent().appendingPathComponent("Ember")
+        if !FileManager.default.fileExists(atPath: dir.path), FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.moveItem(at: legacy, to: dir)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         box = CollectorBox(cacheURL: dir.appendingPathComponent("scan-cache.json"))
         historyURL = dir.appendingPathComponent("pace-history.json")
@@ -181,7 +192,7 @@ final class Store {
         let now = Date().timeIntervalSince1970 * 1000
         let previous = advice.guidance.pick
         advice = advise(snapshot, enabled: lanes, history: history, previous: previous, now: now)
-        var c = EmberCore.chip(advice, enabled: lanes, showAdvice: adviceChip, now: now)
+        var c = CinderBarCore.chip(advice, enabled: lanes, showAdvice: adviceChip, now: now)
         if let cur = c, cur.warning, let d = dismissed[cur.agent],
            cur.stage <= d.stage, d.reset == (advice.standings[cur.agent]?.plan?.resetsMs ?? 0) {
             c = nil
@@ -189,6 +200,7 @@ final class Store {
         chip = c
         stripImage = StripRenderer.image(snapshot: snapshot, lanes: lanes, standings: advice.standings,
                                          chip: chip, fault: false)
+        onStripChange?(stripImage, chip?.text ?? "Cinder Bar")
     }
 
     /// A dismissed warning stays gone until that sub reaches a worse stage or its window rolls over.

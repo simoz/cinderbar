@@ -1,8 +1,8 @@
 import Foundation
-import EmberCore
+import CinderBarCore
 
 // A tiny test runner: XCTest and swift-testing need a full Xcode, this needs
-// only the Command Line Tools. `swift run ember-checks`, exits non-zero on failure.
+// only the Command Line Tools. `swift run cinderbar-checks`, exits non-zero on failure.
 
 var failures = 0, passed = 0
 var current = ""
@@ -180,7 +180,7 @@ test("a session running dry before its reset blocks the sub") {
 print("transcripts")
 
 func tmpDir() -> URL {
-    let u = FileManager.default.temporaryDirectory.appendingPathComponent("ember-checks-\(UUID().uuidString)")
+    let u = FileManager.default.temporaryDirectory.appendingPathComponent("cinderbar-checks-\(UUID().uuidString)")
     try! FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
     return u
 }

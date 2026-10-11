@@ -1,5 +1,5 @@
 import AppKit
-import EmberCore
+import CinderBarCore
 
 /// Draws the menu-bar strip:
 ///
@@ -92,7 +92,7 @@ enum StripRenderer {
     static func attributed(_ chip: Chip) -> NSAttributedString {
         let color: NSColor = chip.warning ? (chip.stage >= 4 ? Palette.bad : Palette.warn) : Palette.ns(chip.agent)
         return NSAttributedString(string: chip.text, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 9.5, weight: .bold),
+            .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .bold),
             .foregroundColor: color,
             .kern: 0.4,
         ])
