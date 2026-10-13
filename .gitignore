@@ -3,3 +3,8 @@ dist/
 *.xcodeproj
 .swiftpm/
 .DS_Store
+videos/*/.hyperframes/
+videos/*/node_modules/
+videos/social-card/out/
+videos/launch/assets/Sun-Scorched Cool.mp3
+videos/*/.thumbnails/

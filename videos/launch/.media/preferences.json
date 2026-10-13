@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "preferences": {
+    "destination": {
+      "value": "x-feed",
+      "confirmed_in": [
+        "launch"
+      ],
+      "updated_at": "2026-10-13T11:30:29.261Z"
+    },
+    "aspect": {
+      "value": "1440x1440",
+      "confirmed_in": [
+        "launch"
+      ],
+      "updated_at": "2026-10-13T11:30:29.350Z"
+    }
+  },
+  "sightings": {}
+}
