@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "menubar-port-launch",
+  "workflow": "general-video",
+  "approved_at": "2026-10-13T12:09:35.054Z",
+  "source_project": "launch",
+  "destination": "x-feed",
+  "aspect": "1440x1440"
+}
