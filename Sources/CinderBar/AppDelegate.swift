@@ -15,8 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A menu-bar app: no Dock icon, even when launched with `swift run`.
         NSApp.setActivationPolicy(.accessory)
 
+        if Installer.offerMoveIfNeeded() { return }
         store = Store.shared
         RenderMode.runIfAsked(store)
+        Installer.applyLoginDefault(store)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {

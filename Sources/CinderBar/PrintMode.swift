@@ -1,4 +1,5 @@
 import Foundation
+import ServiceManagement
 import CinderBarCore
 
 /// `CinderBar --print`: one collector run, a plain summary, exit. For checking what
@@ -22,6 +23,15 @@ enum PrintMode {
         }
         let now = snap.takenMs
         print("window \(spanWords(snap.windowMs)) · scan \(Int(snap.scanMs)) ms")
+        let login: String = {
+            switch SMAppService.mainApp.status {
+            case .enabled: return "on"
+            case .requiresApproval: return "waiting for approval in System Settings"
+            case .notRegistered: return "off"
+            default: return "unavailable"
+            }
+        }()
+        print("app \(Bundle.main.bundlePath) · launch at login \(login)")
         for agent in Agent.allCases {
             guard let s = snap.agents[agent] else { continue }
             print("\n\(agent.title)\(s.present ? "" : " (no transcripts)")")

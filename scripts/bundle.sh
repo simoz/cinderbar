@@ -8,6 +8,7 @@ APP="dist/Cinder Bar.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/CinderBar" "$APP/Contents/MacOS/CinderBar"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -17,6 +18,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Cinder Bar</string>
   <key>CFBundleIdentifier</key><string>dev.cinderbar.CinderBar</string>
   <key>CFBundleExecutable</key><string>CinderBar</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
@@ -35,4 +37,13 @@ if [ "${ZIP:-0}" = "1" ]; then
   rm -f "$ZIPFILE"
   ditto -c -k --keepParent "$APP" "$ZIPFILE"
   echo "zipped $ZIPFILE"
+fi
+
+# INSTALL=1: replace /Applications/Cinder Bar.app with this build and open it.
+if [ "${INSTALL:-0}" = "1" ]; then
+  pkill -x CinderBar 2>/dev/null || true
+  rm -rf "/Applications/Cinder Bar.app"
+  ditto "$APP" "/Applications/Cinder Bar.app"
+  open "/Applications/Cinder Bar.app"
+  echo "installed /Applications/Cinder Bar.app"
 fi

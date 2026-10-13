@@ -94,18 +94,24 @@ xattr -dr com.apple.quarantine "/Applications/Cinder Bar.app"
 ```
 
 You can also go to System Settings › Privacy & Security and choose
-**Open Anyway** after the first attempt. Then tick **Launch at login** in SETUP
-to keep it running.
+**Open Anyway** after the first attempt.
+
+Opened from anywhere other than Applications, Cinder Bar offers to move itself
+there and relaunch. The first time it runs from Applications it turns on
+**Launch at login**, so it is in the menu bar every time you start the Mac. You
+can turn that off in SETUP.
 
 **From source.** You need the Xcode Command Line Tools
 (`xcode-select --install`). Full Xcode is not required.
 
 ```sh
-./scripts/bundle.sh          # builds "dist/Cinder Bar.app"
-open "dist/Cinder Bar.app"
+./scripts/bundle.sh             # builds "dist/Cinder Bar.app"
+INSTALL=1 ./scripts/bundle.sh   # builds it and installs it in /Applications
+ZIP=1 ./scripts/bundle.sh       # builds it and zips it for a release
 ```
 
-While developing, use `swift run CinderBar`.
+While developing, use `swift run CinderBar`. The icon is drawn by
+`swift scripts/make-icon.swift Resources/AppIcon.icns`.
 
 Two diagnostic modes:
 
@@ -123,6 +129,26 @@ the swift-testing macros:
 ```sh
 swift run cinderbar-checks
 ```
+
+## Uninstall
+
+1. Open the panel, go to SETUP and turn off **Launch at login**. This removes
+   Cinder Bar from System Settings › General › Login Items.
+2. Quit it with the power button at the top right of the panel.
+3. Move `Cinder Bar.app` from Applications to the Trash.
+4. Remove its data and settings:
+
+```sh
+rm -rf ~/Library/Application\ Support/CinderBar
+defaults delete dev.cinderbar.CinderBar
+```
+
+The first command removes the scan cache and the pace history. The second
+removes the SETUP preferences. Cinder Bar never writes to your Claude or Codex
+transcripts, so nothing else needs cleaning up.
+
+If you deleted the app before step 1 and it still appears in Login Items,
+remove it there with the minus button.
 
 ## Where the numbers come from
 
