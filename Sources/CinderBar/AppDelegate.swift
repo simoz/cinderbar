@@ -22,15 +22,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = store.stripImage
-            button.imagePosition = .imageOnly
             button.target = self
             button.action = #selector(togglePanel(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            stripView.frame = button.bounds
+            stripView.autoresizingMask = [.width, .height]
+            button.addSubview(stripView)
+        }
+        showStrip(store.stripImage)
+        store.isStripVisible = { [weak self] in
+            self?.statusItem.button?.window?.occlusionState.contains(.visible) ?? false
         }
         store.onStripChange = { [weak self] image, label in
-            self?.statusItem.button?.image = image
-            self?.statusItem.button?.setAccessibilityLabel(label)
+            self?.showStrip(image)
+            if self?.statusItem.button?.accessibilityLabel() != label { self?.statusItem.button?.setAccessibilityLabel(label) }
         }
 
         let host = NSHostingController(rootView: CockpitView().environment(store))
@@ -54,6 +59,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.togglePanel(button)
             }
         }
+    }
+
+    /// The strip draws in its own view: a new frame only repaints it, while
+    /// replacing the button's image would re-lay-out the status item every
+    /// frame. The item is resized only when the strip's width changes.
+    private let stripView = StripView()
+
+    private func showStrip(_ image: NSImage) {
+        let length = ceil(image.size.width) + 8
+        if statusItem.length != length { statusItem.length = length }
+        stripView.image = image
     }
 
     /// The popover's own chrome (its arrow and edge) follows the panel theme.
@@ -81,5 +97,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Key focus, so R refreshes and Esc closes.
         NSApp.activate(ignoringOtherApps: true)
         popover.contentViewController?.view.window?.makeKey()
+    }
+}
+
+/// Draws the latest strip image centred; clicks pass through to the button.
+final class StripView: NSView {
+    var image: NSImage? { didSet { needsDisplay = true } }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image else { return }
+        let s = image.size
+        image.draw(in: NSRect(x: ((bounds.width - s.width) / 2).rounded(), y: ((bounds.height - s.height) / 2).rounded(),
+                              width: s.width, height: s.height))
     }
 }

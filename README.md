@@ -31,6 +31,17 @@ through the agent's colour and amber to white-hot. Height is only a secondary
 swell. The thin line under each lane is its plan gauge, which turns amber when
 the plan is over pace and red when it is spent.
 
+The strip glows as Burn Bar's does. Hot cells flicker like embers and bloom
+past their edges, and a white-hot filament appears only in a cell at the top of
+the scale. The strip sits on a faint bed of light that brightens with total
+burn. A lane flashes when new burn lands, and the cell at "now" breathes. A plan
+gauge past 90% beats, and so does a warning chip. At most one thing pulses: while
+a 5-hour chip shows, everything else holds still. Every frame costs macOS a
+redraw of the menu bar item, so the strip animates at 4 frames a second while
+something burns, briefly faster through a flash, and not at all at rest.
+**Ember motion** in SETUP turns it off, and so does Reduce Motion in System
+Settings › Accessibility.
+
 The chip beside the cells gives guidance, not multipliers. While a sub is past
 an even spend it says what to do (`CLAUDE REST 8H`, `CODEX SPENT`,
 `CLAUDE 5H OUT IN 40M`). With nothing to warn about it names the sub to use
@@ -169,10 +180,18 @@ remove it there with the minus button.
   events carry `rate_limits` (the 5-hour and weekly windows, and the plan),
   which is Codex's plan meter.
 - **Grok**: `$GROK_HOME`, `~/.grok` by default.
+  The Grok CLI (1.0.52 on) writes `sessions/**/usage.json`, a per-turn ledger
+  it rewrites in place. Each turn counts once, keyed by session and turn number,
+  and the latest content wins. Fresh input is `inputTokens` less
+  `cachedReadTokens`, cache writes are `cacheCreationTokens`, and output is
+  `outputTokens`, which already includes reasoning. Cache reads are carried
+  separately, as for Claude. The model is the turn's `primaryModelId`. A
+  session without a `usage.json` (older Grok builds) falls back to an estimate:
   `sessions/**/updates.jsonl` carries `_meta.totalTokens`, the running context
-  size, for each `promptId`. Grok leaves no per-turn usage, so a prompt's burn
-  is estimated as the rise of that figure within the prompt. A prompt whose
-  figure does not change adds nothing. `summary.json` names the model. The
+  size, for each `promptId`, and a prompt's burn is the rise of that figure
+  within the prompt. A prompt whose figure does not change adds nothing, and
+  `summary.json` names the model. The Free plan logs no credit figure, so its
+  card shows tokens only. The
   weekly credit figure and the plan (`SuperGrok Heavy` is shown as `HEAVY
   PLAN`) come from the `billing: fetched credits config` lines in
   `logs/unified.jsonl`. The card's account line is the newest sign-in's email
@@ -194,9 +213,12 @@ measured percentages that the burndown is drawn from.
 ## Privacy
 
 Cinder Bar reads your Claude, Codex and Grok transcripts on this Mac to count tokens. It
-keeps numbers, model names and message ids, never message text. From Grok's
-`auth.json` it reads one field, the email, to label the card. The tokens in
-that file are never copied, logged or stored. **Account names** in SETUP hides
+keeps numbers, model names and message ids, never message text. Each card's
+account label comes from one field of the file where that tool keeps its
+sign-in: `oauthAccount.emailAddress` (else the display name) in
+`~/.claude.json`, the email in the ChatGPT `id_token` of `~/.codex/auth.json`
+(or `API key` for an API-key login), and the newest email in Grok's
+`auth.json`. The tokens in those files are never copied, logged or stored. **Account names** in SETUP hides
 the label for a screen share. The only
 network request it makes is the Claude limits probe described above. That
 request goes only to `api.anthropic.com`, using the token Claude Code already
@@ -209,10 +231,10 @@ Cinder Bar covers part of Burn Bar so far:
 
 - Lanes for Claude, Codex and Grok. Kimi, Zcode and the local Ollama/GPU
   lane are not ported yet.
-- Only the Grok card names its account so far. Burn Bar 2.5 also names the
-  Claude and Codex logins.
-- No ember flicker, impact shockwave or sparks yet. The strip redraws on
-  every refresh but does not animate.
+- No rising sparks, and the lane flash is a glow rather than Burn Bar's
+  shockwave: at 18 points tall the menu bar has no room for either.
+- The motion runs at 4 frames a second rather than Burn Bar's 20, because macOS
+  re-snapshots the menu bar item on every frame.
 - The burndown line is drawn from percentages Cinder Bar itself has measured, so it
   fills in over time after install.
 

@@ -137,6 +137,8 @@ public struct Chip: Equatable, Sendable {
     public var warning: Bool
     /// Severity used to decide whether a dismissed chip comes back.
     public var stage: Int
+    /// A 5-hour window about to run out: while it shows, it is the one thing that pulses.
+    public var session = false
 }
 
 public func chip(_ advice: Advice, enabled: [Agent], showAdvice: Bool, now: Double) -> Chip? {
@@ -147,9 +149,9 @@ public func chip(_ advice: Advice, enabled: [Agent], showAdvice: Bool, now: Doub
         // The 5-hour window outranks a week merely over pace: it locks you out in hours.
         if st.heat.hot {
             if st.heat.spent {
-                c = Chip(agent: agent, text: "\(agent.title) 5H SPENT, BACK \(spanShort(st.heat.resetsMs - now))", warning: true, stage: 4)
+                c = Chip(agent: agent, text: "\(agent.title) 5H SPENT, BACK \(spanShort(st.heat.resetsMs - now))", warning: true, stage: 4, session: true)
             } else if st.heat.dryAt > now {
-                c = Chip(agent: agent, text: "\(agent.title) 5H OUT IN \(spanShort(st.heat.dryAt - now))", warning: true, stage: 3)
+                c = Chip(agent: agent, text: "\(agent.title) 5H OUT IN \(spanShort(st.heat.dryAt - now))", warning: true, stage: 3, session: true)
             }
         }
         if let live = st.live, st.fresh {

@@ -155,8 +155,8 @@ struct CardView: View {
                 Metric(label: "CACHE WRITE", value: tokenWords(s.cacheWrite))
                 Metric(label: "OUTPUT", value: tokenWords(s.output))
             }
-            // Grok leaves no token ledger: its figure is the rise of each prompt's context.
-            Text(agent == .grok ? "estimated from each prompt's context growth; Grok logs no per-turn usage"
+            // A Grok session older than its usage.json ledger is estimated from its context's rise, with no cache reads.
+            Text(agent == .grok && s.cacheRead == 0 ? "estimated from each prompt's context growth; this Grok build logs no per-turn usage"
                  : String(format: "cache reads %@ · %.0f%% of everything the model took in", tokenWords(s.cacheRead), readShare))
                 .font(.system(size: ui(10.5))).foregroundStyle(.secondary)
         }

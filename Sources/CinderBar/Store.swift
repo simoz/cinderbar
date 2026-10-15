@@ -47,6 +47,7 @@ final class Store {
     var headline: Headline { didSet { save("headline", headline.rawValue) } }
     var showSessionWindows: Bool { didSet { save("showSessionWindows", showSessionWindows) } }
     var adviceChip: Bool { didSet { save("adviceChip", adviceChip); recompute() } }
+    var stripMotion: Bool { didSet { save("stripMotion", stripMotion); recompute() } }
     var glow: GlowReason { didSet { save("glow", glow.rawValue) } }
     var theme: PanelTheme { didSet { save("theme", theme.rawValue); onThemeChange?(theme) } }
 
@@ -65,6 +66,13 @@ final class Store {
     /// The status item's button follows this; set by the app delegate.
     @ObservationIgnored var onStripChange: ((NSImage, String) -> Void)?
     @ObservationIgnored var onThemeChange: ((PanelTheme) -> Void)?
+    /// Whether the status item is on screen; a hidden menu bar draws no frames.
+    @ObservationIgnored var isStripVisible: () -> Bool = { true }
+    @ObservationIgnored private var motion = StripMotion()
+    @ObservationIgnored private var flashAt: [Agent: Date] = [:]
+    @ObservationIgnored private var lastNewest: [Agent: Int] = [:]
+    @ObservationIgnored private var lastFrame = Date()
+    @ObservationIgnored private var frameTask: Task<Void, Never>?
     @ObservationIgnored private var claudeReading: AgentLimits?
     @ObservationIgnored private var dismissed: [Agent: (stage: Int, reset: Double)] = [:]
     @ObservationIgnored private let box: CollectorBox
@@ -81,7 +89,7 @@ final class Store {
         d.register(defaults: [
             "windowMinutes": 360, "buckets": 12, "refreshSec": 5, "limitsRefreshSec": 300,
             "claudeLane": true, "codexLane": true, "grokLane": true, "showAccounts": true, "claudeLimits": true, "headline": "budget",
-            "showSessionWindows": false, "adviceChip": true, "glow": "overPace", "theme": "dark",
+            "showSessionWindows": false, "adviceChip": true, "stripMotion": true, "glow": "overPace", "theme": "dark",
         ])
         windowMinutes = d.integer(forKey: "windowMinutes")
         buckets = d.integer(forKey: "buckets")
@@ -95,6 +103,7 @@ final class Store {
         headline = Headline(rawValue: d.string(forKey: "headline") ?? "") ?? .budget
         showSessionWindows = d.bool(forKey: "showSessionWindows")
         adviceChip = d.bool(forKey: "adviceChip")
+        stripMotion = d.bool(forKey: "stripMotion")
         glow = GlowReason(rawValue: d.string(forKey: "glow") ?? "") ?? .overPace
         theme = PanelTheme(rawValue: d.string(forKey: "theme") ?? "") ?? .dark
 
@@ -161,6 +170,7 @@ final class Store {
             snap.agents[.claude] = stats
         }
         snapshot = snap
+        noteNewBurn()
         for a in [Agent.codex, .grok] {
             if let l = snap.agents[a]?.limits, !l.windows.isEmpty { history.record(a, l) }
         }
@@ -208,9 +218,74 @@ final class Store {
             c = nil
         }
         chip = c
+        motion.enabled = motionOn
         stripImage = StripRenderer.image(snapshot: snapshot, lanes: lanes, standings: advice.standings,
-                                         chip: chip, fault: false)
+                                         chip: chip, fault: false, motion: motion)
         onStripChange?(stripImage, chip?.text ?? "Cinder Bar")
+        if motionOn { startFrames() }
+    }
+
+    // MARK: Strip motion
+
+    /// Off in SETUP, with Reduce Motion on, or with no lanes to draw.
+    private var motionOn: Bool {
+        stripMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !lanes.isEmpty
+    }
+
+    /// A lane whose newest bucket grew since the last scan flashes.
+    private func noteNewBurn() {
+        for a in Agent.allCases {
+            let newest = snapshot.agents[a]?.buckets.last ?? 0
+            if let last = lastNewest[a], newest > last { flashAt[a] = Date() }
+            lastNewest[a] = newest
+        }
+    }
+
+    /// The frame loop: 15fps through a flash, 4fps while something burns or
+    /// beats, a check once a second while the menu bar is hidden, and nothing
+    /// at rest or with motion off; the next scan restarts it. Each frame
+    /// redraws the status item only, not the panel.
+    private func startFrames() {
+        guard frameTask == nil else { return }
+        lastFrame = Date()
+        frameTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let wait = self.frame() else { break }
+                try? await Task.sleep(for: .milliseconds(wait))
+            }
+            self?.frameTask = nil
+        }
+    }
+
+    private func frame() -> Int? {
+        guard motionOn else {
+            motion = StripMotion()
+            return nil
+        }
+        let now = Date()
+        let dt = min(0.25, now.timeIntervalSince(lastFrame))
+        lastFrame = now
+        // Speeds per second, so a lower frame rate changes smoothness, never pace.
+        motion.ember = (motion.ember + 2.8 * dt).truncatingRemainder(dividingBy: 2 * .pi)
+        motion.drift = (motion.drift + 0.25 * dt).truncatingRemainder(dividingBy: 2 * .pi)
+        motion.pulseMs += dt * 1000
+        // The flash: a 90ms rise, then a 700ms fade.
+        for (a, at) in flashAt {
+            let s = now.timeIntervalSince(at)
+            if s >= 0.79 { flashAt[a] = nil; motion.flash[a] = nil; continue }
+            motion.flash[a] = s < 0.09 ? s / 0.09 : pow(1 - (s - 0.09) / 0.7, 3)
+        }
+        guard isStripVisible() else { return 1000 }
+        let image = StripRenderer.image(snapshot: snapshot, lanes: lanes, standings: advice.standings,
+                                        chip: chip, fault: false, motion: motion)
+        onStripChange?(image, chip?.text ?? "Cinder Bar")
+        // Every frame costs macOS a snapshot of the status item for each menu bar,
+        // so the rate is the cost: a quick burst only while a flash runs, a slow
+        // ember otherwise, and nothing at rest unless something has to beat.
+        if !flashAt.isEmpty { return 66 }
+        let idle = lanes.allSatisfy { (snapshot.agents[$0]?.buckets.last ?? 0) == 0 }
+        let beating = chip?.warning == true || lanes.contains { (advice.standings[$0]?.live?.used ?? 0) >= 0.9 }
+        return idle && !beating ? nil : 250
     }
 
     /// A dismissed warning stays gone until that sub reaches a worse stage or its window rolls over.

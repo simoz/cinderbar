@@ -250,6 +250,46 @@ test("scanner: an append is read from the offset, a rewrite from the start") {
     eq(col.collect(cfg, now: now).agents[.codex]!.total, 10)
 }
 
+func jwt(_ claims: String) -> String {
+    let b = Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+    return "eyJhbGciOiJSUzI1NiJ9.\(b).SIGNATURE-SECRET"
+}
+
+test("accounts: Claude and Codex name the login, never a token") {
+    let dir = tmpDir()
+    let claudeJSON = dir.appendingPathComponent(".claude.json"), codexAuth = dir.appendingPathComponent("auth.json")
+    try #"{"oauthAccount":{"emailAddress":"me@work.com","displayName":"Me","accessToken":"SECRET-C"},"primaryApiKey":"SECRET-K"}"#
+        .write(to: claudeJSON, atomically: true, encoding: .utf8)
+    let idToken = jwt(#"{"email":"me@chatgpt.com\u202e","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}"#)
+    try #"{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"\#(idToken)","access_token":"SECRET-A","refresh_token":"SECRET-R"}}"#
+        .write(to: codexAuth, atomically: true, encoding: .utf8)
+    eq(Accounts.claude(claudeJSON), "me@work.com")
+    eq(Accounts.codex(codexAuth), "me@chatgpt.com")
+
+    // Through the collector, cached by mtime and refreshed when the file changes.
+    let proj = dir.appendingPathComponent("p"); try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
+    var cfg = CollectorConfig(); cfg.claudeRoot = proj; cfg.codexRoot = proj; cfg.grokHome = dir.appendingPathComponent("none")
+    cfg.claudeJSON = claudeJSON; cfg.codexAuth = codexAuth
+    let col = Collector(cacheURL: nil)
+    var snap = col.collect(cfg, now: NOW)
+    eq(snap.agents[.claude]!.account, "me@work.com"); eq(snap.agents[.codex]!.account, "me@chatgpt.com")
+    for a in [Agent.claude, .codex] { check(!(snap.agents[a]!.account ?? "").contains("SECRET")) }
+    try #"{"oauthAccount":{"displayName":"Only Name"}}"#.write(to: claudeJSON, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: claudeJSON.path)
+    snap = col.collect(cfg, now: NOW)
+    eq(snap.agents[.claude]!.account, "Only Name")
+
+    // API key sign-in, missing files, junk.
+    try #"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-SECRET"}"#.write(to: codexAuth, atomically: true, encoding: .utf8)
+    eq(Accounts.codex(codexAuth), "API key")
+    check(Accounts.claude(dir.appendingPathComponent("missing")) == nil)
+    try "not json".write(to: codexAuth, atomically: true, encoding: .utf8)
+    check(Accounts.codex(codexAuth) == nil)
+    try #"{"tokens":{"id_token":"garbage"}}"#.write(to: codexAuth, atomically: true, encoding: .utf8)
+    check(Accounts.codex(codexAuth) == nil)
+}
+
 test("claude usage reply: percentages to shares, unknown fields withheld") {
     let json = #"{"five_hour":{"utilization":42.0,"resets_at":"2026-10-11T15:00:00.000Z"},"seven_day":{"utilization":10,"resets_at":"2026-10-15T09:00:00Z"},"seven_day_opus":null,"seven_day_sonnet":{"utilization":0,"resets_at":null}}"#
     let l = ClaudeLimits.parse(Data(json.utf8), measuredMs: NOW)
@@ -309,6 +349,68 @@ test("grok: a prompt counts the rise of its context, once, the largest") {
     eq(g.sessions, 1)
     eq(g.byModel.first?.model, "grok-4.6")
     check(g.lastUseMs > 0)
+}
+
+func grokTurn(_ n: Int, _ ts: Double, input: Int, output: Int, cached: Int = 0, written: Int = 0, model: String? = "grok-4.7") -> String {
+    let primary = model.map { #""primaryModelId":"\#($0)","# } ?? ""
+    return #"{"turnNumber":\#(n),"endedAt":"\#(iso(ts))","inputTokens":\#(input),"outputTokens":\#(output),"cachedReadTokens":\#(cached),"cacheCreationTokens":\#(written),"reasoningTokens":5,"totalTokens":\#(input + output),\#(primary)"modelUsage":{"grok-4.7-mini":{"totalTokens":\#(input + output)}}}"#
+}
+func grokUsageFile(_ id: String, _ turns: [String]) -> String {
+    #"{"sessionId":"\#(id)","updatedAt":"\#(iso(Date().timeIntervalSince1970 * 1000))","session":{},"turns":[\#(turns.joined(separator: ",\n"))]}"#
+}
+
+test("grok usage.json: per-turn tokens, split like Claude, the ledger beats the estimate") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let home = try grokHome(sessions: ["led": [grokUpdate("p1", 1000, now - 60e3), grokUpdate("p1", 1000, now - 60e3)],
+                                       "old": [grokUpdate("p1", 1000, now - 60e3), grokUpdate("p1", 1600, now - 60e3)]],
+                            model: "grok-4.6")
+    let ledger = home.appendingPathComponent("sessions/led/usage.json")
+    try grokUsageFile("led", [grokTurn(1, now - 120e3, input: 20278, output: 45, cached: 1152),
+                              grokTurn(2, now - 60e3, input: 3000, output: 100, cached: 2000, written: 50, model: nil)])
+        .write(to: ledger, atomically: true, encoding: .utf8)
+    let col = Collector(cacheURL: nil)
+    var cfg = CollectorConfig()
+    cfg.claudeRoot = home.appendingPathComponent("none"); cfg.codexRoot = cfg.claudeRoot; cfg.grokHome = home
+    var g = col.collect(cfg, now: now).agents[.grok]!
+    eq(g.split, TokenSplit(input: 19126 + 1000, cacheWrite: 50, output: 145, cacheRead: 3152 + 0) + TokenSplit(input: 600))
+    eq(g.turns, 3)                                     // two ledger turns + one estimated prompt in "old"
+    eq(g.sessions, 2)
+    eq(Set(g.byModel.map(\.model)), ["grok-4.7", "grok-4.7-mini", "grok-4.6"])
+
+    // Rewritten in place: turn 2 grew, turn 1 is listed twice. Latest content wins, once each.
+    try grokUsageFile("led", [grokTurn(1, now - 120e3, input: 20278, output: 45, cached: 1152),
+                              grokTurn(2, now - 60e3, input: 5000, output: 200, cached: 2000),
+                              grokTurn(1, now - 120e3, input: 20278, output: 45, cached: 1152)])
+        .write(to: ledger, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: ledger.path)
+    g = col.collect(cfg, now: now).agents[.grok]!
+    eq(g.total, (19126 + 45) + (3000 + 200) + 600)
+    eq(g.turns, 3)
+
+    // A ledger caught mid-rewrite keeps the last good read.
+    try "{\"sessionId\":\"led\",\"tur".write(to: ledger, atomically: true, encoding: .utf8)
+    eq(col.collect(cfg, now: now).agents[.grok]!.total, g.total)
+}
+
+test("grok usage.json: points straight from the parser") {
+    let obj = try JSONSerialization.jsonObject(with: Data(grokUsageFile("s9", [grokTurn(7, NOW, input: 10, output: 2, cached: 4)]).utf8)) as! [String: Any]
+    let p = grokUsagePoints(obj, session: "dir")
+    eq(p.count, 1)
+    eq(p.first?.key, "s9/turn/7"); eq(p.first?.session, "s9")
+    eq(p.first?.split, TokenSplit(input: 6, output: 2, cacheRead: 4))
+    eq(grokUsagePoints(["turns": [["turnNumber": 1, "inputTokens": 5]]], session: "x").count, 0)  // no time: skipped
+}
+
+test("grok billing: Free to SuperGrok is an upgrade, Free has no figure") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let log = [grokBilling(now - 2 * HOUR, tier: "Free", pct: nil, end: PLAN_END),
+               grokBilling(now - HOUR, tier: "SuperGrok", pct: 3.0, end: PLAN_END)]
+    let g = grokCollect(try grokHome(sessions: [:], log: log), now: now)
+    eq(g.limits.planChange?.direction, .up)
+    eq(g.limits.planChange?.words, "upgraded to SuperGrok")
+    let free = grokCollect(try grokHome(sessions: [:], log: [log[0]]), now: now)
+    eq(free.limits.plan, "Free")
+    check(free.limits.planWindow!.percent == nil)
 }
 
 let PLAN_END = Date().timeIntervalSince1970 * 1000 + 2 * DAY
