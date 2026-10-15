@@ -3,11 +3,11 @@ import CinderBarCore
 
 /// Draws the menu-bar strip:
 ///
-///     CLAUDE ◄── time ──┤ now ├── time ──► CODEX │ GROK ──►   CHIP
+///     CLAUDE ◄── time ──┤ now ├── time ──► CODEX │ GROK ──► │ KIMI ──►   CHIP
 ///
 /// Claude burns on the left, Codex on the right, and the newest bucket of
 /// each sits against the centre divider, so the divider is always "now".
-/// Grok follows Codex behind a thin rule, newest on its left, as in Burn Bar.
+/// Grok and Kimi follow Codex behind thin rules, newest on their left, as in Burn Bar.
 /// Colour carries the token count; height is only a secondary swell.
 enum StripRenderer {
     static let height: CGFloat = 18

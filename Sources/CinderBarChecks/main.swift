@@ -311,6 +311,68 @@ test("grok: a prompt counts the rise of its context, once, the largest") {
     check(g.lastUseMs > 0)
 }
 
+func grokTurn(_ n: Int, _ ts: Double, input: Int, output: Int, cached: Int = 0, written: Int = 0, model: String? = "grok-4.7") -> String {
+    let primary = model.map { #""primaryModelId":"\#($0)","# } ?? ""
+    return #"{"turnNumber":\#(n),"endedAt":"\#(iso(ts))","inputTokens":\#(input),"outputTokens":\#(output),"cachedReadTokens":\#(cached),"cacheCreationTokens":\#(written),"reasoningTokens":5,"totalTokens":\#(input + output),\#(primary)"modelUsage":{"grok-4.7-mini":{"totalTokens":\#(input + output)}}}"#
+}
+func grokUsageFile(_ id: String, _ turns: [String]) -> String {
+    #"{"sessionId":"\#(id)","updatedAt":"\#(iso(Date().timeIntervalSince1970 * 1000))","session":{},"turns":[\#(turns.joined(separator: ",\n"))]}"#
+}
+
+test("grok usage.json: per-turn tokens, split like Claude, the ledger beats the estimate") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let home = try grokHome(sessions: ["led": [grokUpdate("p1", 1000, now - 60e3), grokUpdate("p1", 1000, now - 60e3)],
+                                       "old": [grokUpdate("p1", 1000, now - 60e3), grokUpdate("p1", 1600, now - 60e3)]],
+                            model: "grok-4.6")
+    let ledger = home.appendingPathComponent("sessions/led/usage.json")
+    try grokUsageFile("led", [grokTurn(1, now - 120e3, input: 20278, output: 45, cached: 1152),
+                              grokTurn(2, now - 60e3, input: 3000, output: 100, cached: 2000, written: 50, model: nil)])
+        .write(to: ledger, atomically: true, encoding: .utf8)
+    let col = Collector(cacheURL: nil)
+    var cfg = CollectorConfig()
+    cfg.claudeRoot = home.appendingPathComponent("none"); cfg.codexRoot = cfg.claudeRoot; cfg.grokHome = home
+    var g = col.collect(cfg, now: now).agents[.grok]!
+    eq(g.split, TokenSplit(input: 19126 + 1000, cacheWrite: 50, output: 145, cacheRead: 3152 + 0) + TokenSplit(input: 600))
+    eq(g.turns, 3)                                     // two ledger turns + one estimated prompt in "old"
+    eq(g.sessions, 2)
+    eq(Set(g.byModel.map(\.model)), ["grok-4.7", "grok-4.7-mini", "grok-4.6"])
+
+    // Rewritten in place: turn 2 grew, turn 1 is listed twice. Latest content wins, once each.
+    try grokUsageFile("led", [grokTurn(1, now - 120e3, input: 20278, output: 45, cached: 1152),
+                              grokTurn(2, now - 60e3, input: 5000, output: 200, cached: 2000),
+                              grokTurn(1, now - 120e3, input: 20278, output: 45, cached: 1152)])
+        .write(to: ledger, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: ledger.path)
+    g = col.collect(cfg, now: now).agents[.grok]!
+    eq(g.total, (19126 + 45) + (3000 + 200) + 600)
+    eq(g.turns, 3)
+
+    // A ledger caught mid-rewrite keeps the last good read.
+    try "{\"sessionId\":\"led\",\"tur".write(to: ledger, atomically: true, encoding: .utf8)
+    eq(col.collect(cfg, now: now).agents[.grok]!.total, g.total)
+}
+
+test("grok usage.json: points straight from the parser") {
+    let obj = try JSONSerialization.jsonObject(with: Data(grokUsageFile("s9", [grokTurn(7, NOW, input: 10, output: 2, cached: 4)]).utf8)) as! [String: Any]
+    let p = grokUsagePoints(obj, session: "dir")
+    eq(p.count, 1)
+    eq(p.first?.key, "s9/turn/7"); eq(p.first?.session, "s9")
+    eq(p.first?.split, TokenSplit(input: 6, output: 2, cacheRead: 4))
+    eq(grokUsagePoints(["turns": [["turnNumber": 1, "inputTokens": 5]]], session: "x").count, 0)  // no time: skipped
+}
+
+test("grok billing: Free to SuperGrok is an upgrade, Free has no figure") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let log = [grokBilling(now - 2 * HOUR, tier: "Free", pct: nil, end: PLAN_END),
+               grokBilling(now - HOUR, tier: "SuperGrok", pct: 3.0, end: PLAN_END)]
+    let g = grokCollect(try grokHome(sessions: [:], log: log), now: now)
+    eq(g.limits.planChange?.direction, .up)
+    eq(g.limits.planChange?.words, "upgraded to SuperGrok")
+    let free = grokCollect(try grokHome(sessions: [:], log: [log[0]]), now: now)
+    eq(free.limits.plan, "Free")
+    check(free.limits.planWindow!.percent == nil)
+}
+
 let PLAN_END = Date().timeIntervalSince1970 * 1000 + 2 * DAY
 
 test("grok billing: weekly figure, plan named, Plus to Heavy is an upgrade") {
@@ -389,6 +451,67 @@ test("grok snapshot: ten points of margin, twenty-five once used since") {
     eq(adv.guidance.pick, "grok")
     let t = todoLine(adv.standings[.grok]!, now: NOW)
     check(t.headline.hasPrefix("BANKED ~")); check(t.detail.hasSuffix(", used since"))
+}
+
+print("kimi")
+
+test("kimi: Kimi-model turns leave Claude's lane for their own") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let dir = tmpDir().appendingPathComponent("p")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let kimiLine = { (id: String, model: String, out: Int) in
+        #"{"type":"assistant","timestamp":"\#(iso(now - 30e3))","sessionId":"s2","message":{"id":"\#(id)","model":"\#(model)","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":500,"output_tokens":\#(out)}}}"#
+    }
+    let lines = [claudeLine("m1", now - 60e3, out: 5), kimiLine("k1", "kimi-k3", 40), kimiLine("k1", "kimi-k3", 90),
+                 kimiLine("k2", "Moonshot-v2", 1)]
+    try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
+    var cfg = CollectorConfig()
+    cfg.claudeRoot = dir.deletingLastPathComponent(); cfg.codexRoot = dir.appendingPathComponent("none"); cfg.grokHome = cfg.codexRoot
+    let snap = Collector(cacheURL: nil).collect(cfg, now: now)
+    let claude = snap.agents[.claude]!, kimi = snap.agents[.kimi]!
+    eq(claude.total, 10 + 100 + 5)
+    eq(claude.byModel.map(\.model), ["claude-opus-5-5"])
+    eq(kimi.total, (10 + 90) + (10 + 1))                // the largest revision of k1, once
+    eq(kimi.split.cacheRead, 1000)
+    eq(kimi.turns, 2)
+    check(kimi.present)
+    check(!Collector(cacheURL: nil).collect({ var c = cfg; c.claudeRoot = cfg.codexRoot; return c }(), now: now).agents[.kimi]!.present)
+}
+
+let KIMI_USAGES = #"{"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"8","remaining":"92","resetTime":"2026-09-19T02:43:48.125750Z"}}],"usages":{"limit_5h":{"used_ratio":0,"reset_time":"2026-09-19T02:43:47Z"},"limit_month_total":{"used_ratio":0.0025,"reset_time":"2026-10-19T00:00:00Z"},"limit_month_code":{"used_ratio":0,"reset_time":"2026-10-19T00:00:00Z"}}}"#
+
+test("kimi /usages: the request window wins its span, the month is the plan") {
+    let l = Kimi.parseUsages(Data(KIMI_USAGES.utf8), measuredMs: NOW)
+    eq(l.windows.map(\.name), ["5-hour", "Monthly", "Monthly code"])
+    near(l.sessionWindow!.percent!, 0.08)
+    near(l.sessionWindow!.windowMs!, 5 * HOUR)
+    check(l.sessionWindow!.resetsMs != nil)               // fractional seconds past milliseconds still parse
+    eq(l.planWindow?.name, "Monthly")
+    near(l.planWindow!.percent!, 0.0025)
+    near(l.planWindow!.windowMs!, 30 * DAY)               // 19 Sep to 19 Oct
+    eq(l.windows[2].kind, .extra)
+}
+
+test("kimi /usages: clamped, junk dropped, nothing parsed is a status not a 0%") {
+    let junk = #"{"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"250"}},{"window":{"duration":60,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"0","used":"5"}},{"detail":{"limit":"10","used":"1"}},"x"],"usages":{"limit_month_total":{"used_ratio":"nonsense"}}}"#
+    let l = Kimi.parseUsages(Data(junk.utf8), measuredMs: NOW)
+    eq(l.windows.count, 1); eq(l.windows[0].percent, 1.0)
+    for bad in ["{}", #"{"limits":null,"usages":null}"#, "nope"] {
+        let b = Kimi.parseUsages(Data(bad.utf8), measuredMs: NOW)
+        check(b.windows.isEmpty && b.status != nil, bad)
+    }
+}
+
+test("kimi key and /me: env first, then ~/.env; only tier and owner kept") {
+    let dotenv = tmpDir().appendingPathComponent(".env")
+    try "OTHER=1\nexport KIMI_API_KEY=\"sk-from-file\"\n".write(to: dotenv, atomically: true, encoding: .utf8)
+    eq(Kimi.apiKey(env: ["KIMI_API_KEY": " sk-env "], dotenv: dotenv), "sk-env")
+    eq(Kimi.apiKey(env: [:], dotenv: dotenv), "sk-from-file")
+    check(Kimi.apiKey(env: [:], dotenv: dotenv.appendingPathExtension("missing")) == nil)
+    let me = Kimi.parseMe(Data(#"{"user_level_name":"Moderato","email":"me@x.com\u202e","nickname":"n","api_key":"sk-SECRET"}"#.utf8))
+    eq(me.tier, "Moderato"); eq(me.account, "me@x.com")
+    eq(Kimi.parseMe(Data(#"{"nickname":"nick"}"#.utf8)).account, "nick")
+    check(Kimi.isKimiModel("kimi-k3") && Kimi.isKimiModel("moonshot-v1") && !Kimi.isKimiModel("claude-kimi"))
 }
 
 print("advice")

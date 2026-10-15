@@ -3,10 +3,14 @@ import Foundation
 // Grok (Grok Bot / Grok Build) keeps everything under $GROK_HOME, ~/.grok by
 // default. Ported from Burn Bar's collector:
 //
+//   sessions/**/usage.json      the per-turn ledger the Grok CLI writes (1.0.52 on).
+//                               Rewritten in place, so each read replaces the last;
+//                               sessionId + turnNumber is the dedupe key.
 //   sessions/**/updates.jsonl   `_meta.totalTokens` is the running context size
-//                               for a promptId. Grok leaves no API ledger, so a
-//                               prompt's burn is estimated as the rise of that
-//                               figure within the prompt; a flat prompt adds nothing.
+//                               for a promptId. Only for sessions without a
+//                               usage.json (older Grok builds): a prompt's burn is
+//                               estimated as the rise of that figure within the
+//                               prompt; a flat prompt adds nothing.
 //   sessions/**/summary.json    the model id, when present.
 //   logs/unified.jsonl          "billing: fetched credits config" lines carry
 //                               the weekly credit figure and the plan name.
@@ -26,7 +30,7 @@ public enum Grok {
     /// Plan names Grok has been seen to report, lowest to highest, so a change
     /// can be called an upgrade or a downgrade. Anything else is still shown
     /// exactly as Grok wrote it; it is only left unranked.
-    static let tierRank: [String: Int] = ["groklite": 1, "supergroklite": 1, "supergrok": 2,
+    static let tierRank: [String: Int] = ["free": 0, "grokfree": 0, "groklite": 1, "supergroklite": 1, "supergrok": 2,
                                           "grokplus": 3, "supergrokplus": 3, "supergrokheavy": 4]
 
     /// "SuperGrok Heavy" -> "Heavy": the card already says GROK. A bare
@@ -88,6 +92,43 @@ func plainNumber(_ v: Any?) -> Double? {
     guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
     let d = n.doubleValue
     return d.isFinite ? d : nil
+}
+
+/// A session's `usage.json`: one point per turn, keyed by session and turn
+/// number. A turn listed twice keeps its last entry. Mapped like Claude: fresh
+/// input is input less cache reads, and output already includes reasoning
+/// (Grok's totalTokens is input + output), as with Codex. `model` is empty
+/// when the file names none, for the collector to fill in.
+public func grokUsagePoints(_ obj: [String: Any], session fallback: String) -> [UsagePoint] {
+    let session = (obj["sessionId"] as? String).map { String($0.prefix(64)) }.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+    let updated = parseTimestamp(obj["updatedAt"])
+    var byTurn: [Int: UsagePoint] = [:]
+    var order: [Int] = []
+    for case let turn as [String: Any] in obj["turns"] as? [Any] ?? [] {
+        guard let n = plainNumber(turn["turnNumber"]), n.rounded() == n, abs(n) < 1e9,
+              let ts = parseTimestamp(turn["endedAt"]) ?? updated else { continue }
+        let cached = int(turn["cachedReadTokens"])
+        let split = TokenSplit(input: max(0, int(turn["inputTokens"]) - cached),
+                               cacheWrite: int(turn["cacheCreationTokens"]),
+                               output: int(turn["outputTokens"]),
+                               cacheRead: cached)
+        if split.heat == 0 && split.cacheRead == 0 { continue }
+        let key = Int(n)
+        if byTurn[key] == nil { order.append(key) }
+        byTurn[key] = UsagePoint(ts: ts, split: split, model: grokTurnModel(turn), session: session,
+                                 key: "\(session)/turn/\(key)")
+    }
+    return order.compactMap { byTurn[$0] }
+}
+
+/// primaryModelId, else the model in modelUsage that did the most.
+func grokTurnModel(_ turn: [String: Any]) -> String {
+    if let id = turn["primaryModelId"] as? String, !id.isEmpty { return String(id.prefix(64)) }
+    let usage = turn["modelUsage"] as? [String: Any] ?? [:]
+    let top = usage.max { a, b in
+        int((a.value as? [String: Any])?["totalTokens"]) < int((b.value as? [String: Any])?["totalTokens"])
+    }
+    return top.map { String($0.key.prefix(64)) } ?? ""
 }
 
 /// One `updates.jsonl` line. Each prompt's point carries the rise of its
