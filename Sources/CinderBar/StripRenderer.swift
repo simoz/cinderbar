@@ -3,10 +3,11 @@ import CinderBarCore
 
 /// Draws the menu-bar strip:
 ///
-///     CLAUDE ◄── time ──┤ now ├── time ──► CODEX   CHIP
+///     CLAUDE ◄── time ──┤ now ├── time ──► CODEX │ GROK ──►   CHIP
 ///
 /// Claude burns on the left, Codex on the right, and the newest bucket of
 /// each sits against the centre divider, so the divider is always "now".
+/// Grok follows Codex behind a thin rule, newest on its left, as in Burn Bar.
 /// Colour carries the token count; height is only a secondary swell.
 enum StripRenderer {
     static let height: CGFloat = 18
@@ -17,7 +18,7 @@ enum StripRenderer {
                       chip: Chip?, fault: Bool) -> NSImage {
         let n = max(1, lanes.compactMap { snapshot.agents[$0]?.buckets.count }.max() ?? 12)
         let laneWidth = CGFloat(n) * (cellWidth + cellGap)
-        let stripWidth = lanes.isEmpty ? 30 : laneWidth * CGFloat(lanes.count) + (lanes.count > 1 ? 5 : 0)
+        let stripWidth = lanes.isEmpty ? 30 : laneWidth * CGFloat(lanes.count) + CGFloat(max(0, lanes.count - 1)) * 5
         let chipAttr = chip.map { attributed($0) }
         let chipWidth = chipAttr.map { ceil($0.size().width) + 6 } ?? 0
         let size = NSSize(width: stripWidth + chipWidth, height: height)
@@ -34,14 +35,15 @@ enum StripRenderer {
             var x: CGFloat = 0
             for (i, agent) in lanes.enumerated() {
                 let buckets = snapshot.agents[agent]?.buckets ?? []
-                // Mirrored pair: the left lane runs newest-right, the right lane newest-left.
-                let newestFirst = lanes.count > 1 && i == 1
+                // Mirrored pair: the left lane runs newest-right, every lane after it newest-left.
+                let newestFirst = i >= 1
                 drawLane(buckets: buckets, n: n, agent: agent, ceiling: ceiling, originX: x, newestFirst: newestFirst)
                 drawGauge(standings[agent], agent: agent, originX: x, width: laneWidth - cellGap, newestFirst: newestFirst)
                 x += laneWidth
-                if i == 0 && lanes.count > 1 {
-                    NSColor(calibratedWhite: 1, alpha: 0.75).setFill()
-                    NSRect(x: x + 1.5, y: 2, width: 1, height: height - 4).fill()
+                if i < lanes.count - 1 {
+                    // The "now" divider is bright; the rule after it is only a separator.
+                    NSColor(calibratedWhite: 1, alpha: i == 0 ? 0.75 : 0.25).setFill()
+                    NSRect(x: x + 1.5, y: i == 0 ? 2 : 4, width: 1, height: height - (i == 0 ? 4 : 8)).fill()
                     x += 5
                 }
             }

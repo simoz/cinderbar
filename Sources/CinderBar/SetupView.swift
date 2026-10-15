@@ -14,6 +14,11 @@ struct SetupView: View {
                     laneRow(.claude, isOn: $store.claudeLane)
                     RowDivider()
                     laneRow(.codex, isOn: $store.codexLane)
+                    RowDivider()
+                    laneRow(.grok, isOn: $store.grokLane)
+                    RowDivider()
+                    SwitchRow(title: "Account names", isOn: $store.showAccounts,
+                              detail: "Each card names the login it reads. Turn off for a screen share.")
                 }
                 SetupCard(title: "CLAUDE LIMITS", icon: "gauge.with.dots.needle.50percent") {
                     SwitchRow(title: "Read plan usage", isOn: $store.claudeLimits,

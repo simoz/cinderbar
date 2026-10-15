@@ -43,11 +43,22 @@ struct CardView: View {
     // MARK: Sections
 
     private func title(_ live: PaceLive?) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(agent.title).font(.system(size: ui(14), weight: .heavy, design: .rounded)).foregroundStyle(tint)
-            if let plan = stats.limits.plan { Text(plan.uppercased()).font(.system(size: ui(10), weight: .semibold)).foregroundStyle(.secondary) }
-            Spacer()
-            if let live { Pill(text: verdict(live), color: verdictColor(live)) }
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(agent.title).font(.system(size: ui(14), weight: .heavy, design: .rounded)).foregroundStyle(tint)
+                if let plan = stats.limits.plan { Text("\(plan.uppercased()) PLAN").font(.system(size: ui(10), weight: .semibold)).foregroundStyle(.secondary) }
+                Spacer()
+                if let live { Pill(text: verdict(live), color: verdictColor(live)) }
+            }
+            if store.showAccounts, let account = stats.account {
+                Text(account).font(.system(size: ui(10.5))).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            if let change = stats.limits.planChange {
+                Text("\(change.words) \(dayTime(change.atMs, now: now))")
+                    .font(.system(size: ui(10.5), weight: .semibold))
+                    .foregroundStyle(change.direction == .down ? Color(nsColor: Palette.warn) : tint)
+            }
         }
     }
 
@@ -144,7 +155,9 @@ struct CardView: View {
                 Metric(label: "CACHE WRITE", value: tokenWords(s.cacheWrite))
                 Metric(label: "OUTPUT", value: tokenWords(s.output))
             }
-            Text(String(format: "cache reads %@ · %.0f%% of everything the model took in", tokenWords(s.cacheRead), readShare))
+            // Grok leaves no token ledger: its figure is the rise of each prompt's context.
+            Text(agent == .grok ? "estimated from each prompt's context growth; Grok logs no per-turn usage"
+                 : String(format: "cache reads %@ · %.0f%% of everything the model took in", tokenWords(s.cacheRead), readShare))
                 .font(.system(size: ui(10.5))).foregroundStyle(.secondary)
         }
     }

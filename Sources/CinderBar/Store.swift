@@ -41,6 +41,8 @@ final class Store {
     var limitsRefreshSec: Int { didSet { save("limitsRefreshSec", limitsRefreshSec) } }
     var claudeLane: Bool { didSet { save("claudeLane", claudeLane); recompute() } }
     var codexLane: Bool { didSet { save("codexLane", codexLane); recompute() } }
+    var grokLane: Bool { didSet { save("grokLane", grokLane); recompute() } }
+    var showAccounts: Bool { didSet { save("showAccounts", showAccounts) } }
     var claudeLimits: Bool { didSet { save("claudeLimits", claudeLimits); if claudeLimits { refreshLimits(force: true) } else { claudeReading = nil; recompute() } } }
     var headline: Headline { didSet { save("headline", headline.rawValue) } }
     var showSessionWindows: Bool { didSet { save("showSessionWindows", showSessionWindows) } }
@@ -78,7 +80,7 @@ final class Store {
         let d = UserDefaults.standard
         d.register(defaults: [
             "windowMinutes": 360, "buckets": 12, "refreshSec": 5, "limitsRefreshSec": 300,
-            "claudeLane": true, "codexLane": true, "claudeLimits": true, "headline": "budget",
+            "claudeLane": true, "codexLane": true, "grokLane": true, "showAccounts": true, "claudeLimits": true, "headline": "budget",
             "showSessionWindows": false, "adviceChip": true, "glow": "overPace", "theme": "dark",
         ])
         windowMinutes = d.integer(forKey: "windowMinutes")
@@ -87,6 +89,8 @@ final class Store {
         limitsRefreshSec = d.integer(forKey: "limitsRefreshSec")
         claudeLane = d.bool(forKey: "claudeLane")
         codexLane = d.bool(forKey: "codexLane")
+        grokLane = d.bool(forKey: "grokLane")
+        showAccounts = d.bool(forKey: "showAccounts")
         claudeLimits = d.bool(forKey: "claudeLimits")
         headline = Headline(rawValue: d.string(forKey: "headline") ?? "") ?? .budget
         showSessionWindows = d.bool(forKey: "showSessionWindows")
@@ -116,8 +120,12 @@ final class Store {
     /// Lanes that are ticked and have transcripts on this machine.
     var lanes: [Agent] {
         Agent.allCases.filter { a in
-            (a == .claude ? claudeLane : codexLane) && (snapshot.agents[a]?.present ?? true)
+            laneOn(a) && (snapshot.agents[a]?.present ?? true)
         }
+    }
+
+    func laneOn(_ a: Agent) -> Bool {
+        switch a { case .claude: return claudeLane; case .codex: return codexLane; case .grok: return grokLane }
     }
 
     var burning: Agent? {
@@ -153,7 +161,9 @@ final class Store {
             snap.agents[.claude] = stats
         }
         snapshot = snap
-        if let codex = snap.agents[.codex]?.limits, !codex.windows.isEmpty { history.record(.codex, codex) }
+        for a in [Agent.codex, .grok] {
+            if let l = snap.agents[a]?.limits, !l.windows.isEmpty { history.record(a, l) }
+        }
         recompute()
     }
 

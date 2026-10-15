@@ -27,6 +27,14 @@ public struct PaceHistory: Codable, Equatable, Sendable {
             var t = tracks[k] ?? Track(resetsMs: reset, windowMs: span)
             if abs(t.resetsMs - reset) > 10 * 60_000 { t = Track(resetsMs: reset, windowMs: span) }
             t.resetsMs = reset
+            // A plan change re-expresses the same window against another pool
+            // (Grok Plus to Heavy: 14% to 8%, same reset). It is not a gift
+            // reset: the window stays whole, and only samples measured
+            // against the old pool are dropped, so the line and the rate
+            // start at the change.
+            if let at = limits.planChange?.atMs, w.kind == .plan {
+                t.samples.removeAll { $0.ts < at }
+            }
             if let last = t.samples.last {
                 if last.ts >= w.measuredMs { continue }
                 // Unchanged figures only need their first and latest sample.

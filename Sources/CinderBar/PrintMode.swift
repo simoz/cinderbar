@@ -34,7 +34,8 @@ enum PrintMode {
         print("app \(Bundle.main.bundlePath) · launch at login \(login)")
         for agent in Agent.allCases {
             guard let s = snap.agents[agent] else { continue }
-            print("\n\(agent.title)\(s.present ? "" : " (no transcripts)")")
+            print("\n\(agent.title)\(s.present ? "" : " (no transcripts)")\(s.limits.plan.map { " · \($0) plan" } ?? "")\(s.account.map { " · \($0)" } ?? "")")
+            if let c = s.limits.planChange { print("  \(c.words) \(dayTime(c.atMs, now: now))") }
             print("  tokens \(tokenWords(s.total)) · \(s.turns) turns · \(s.sessions) sessions · cache reads \(tokenWords(s.split.cacheRead))")
             print("  cells  \(s.buckets.map(tokenWords).joined(separator: " "))")
             print("  models \(s.byModel.prefix(4).map { "\($0.model) \(tokenWords($0.tokens))" }.joined(separator: ", "))")

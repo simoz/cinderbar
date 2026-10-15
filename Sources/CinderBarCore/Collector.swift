@@ -5,6 +5,7 @@ public struct CollectorConfig: Sendable {
     public var buckets = 12
     public var claudeRoot = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects")
     public var codexRoot = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions")
+    public var grokHome = Grok.home
     public init() {}
 }
 
@@ -13,6 +14,7 @@ public struct CollectorConfig: Sendable {
 public final class Collector {
     let scanner: Scanner
     let cacheURL: URL?
+    var grokModels: [String: (mtime: Double, model: String)] = [:]
 
     public init(cacheURL: URL?) {
         // The longest supported strip window is 24h; nothing older is kept.
@@ -66,22 +68,93 @@ public final class Collector {
         if let l = codexLimits { codex.limits = l }
         agents[.codex] = codex
 
+        agents[.grok] = collectGrok(cfg, now: now, seen: &seen)
+
         scanner.retain(seen)
         var snap = Snapshot(takenMs: now, windowMs: cfg.windowMs, agents: agents)
         snap.scanMs = Date().timeIntervalSince(started) * 1000
         return snap
     }
 
+    /// Grok: per-prompt burn from the session stores, the weekly figure and
+    /// plan from the billing log, and the signed-in account.
+    func collectGrok(_ cfg: CollectorConfig, now: Double, seen: inout Set<String>) -> AgentStats {
+        let root = cfg.grokHome.appendingPathComponent("sessions")
+        var newest: Double = 0
+        let files = walk(root, since: now - dayMs, newest: &newest) { $0 == "updates.jsonl" }
+        var byKey: [String: UsagePoint] = [:]
+        for path in files {
+            seen.insert(path)
+            let dir = (path as NSString).deletingLastPathComponent
+            let session = (dir as NSString).lastPathComponent
+            guard let r = scanner.scan(path: path, needles: [Data("totalTokens".utf8)], extract: grokExtract,
+                                       now: now, session: session) else { continue }
+            let model = grokModel(sessionDir: dir)
+            for var p in r.points {
+                p.model = model
+                let k = p.key ?? "\(p.ts)"
+                if let held = byKey[k], held.split.heat >= p.split.heat { continue }
+                byKey[k] = p
+            }
+        }
+        var grok = aggregate(.grok, points: Array(byKey.values), cfg: cfg, now: now)
+        grok.lastUseMs = newest
+
+        let log = cfg.grokHome.appendingPathComponent("logs/unified.jsonl")
+        let hasLog = FileManager.default.fileExists(atPath: log.path)
+        grok.present = FileManager.default.fileExists(atPath: root.path) || hasLog
+        if hasLog {
+            seen.insert(log.path)
+            let r = scanner.scan(path: log.path, needles: [Data(Grok.billingMessage.utf8)], extract: grokBillingExtract, now: now)
+            if var l = r?.limits {
+                l.planChange = Grok.currentChange(l.planChange, plan: l.planWindow, now: now)
+                // Say so rather than presenting last week's window as this week's.
+                if l.planWindow?.rolledOver(now: now) == true { l.status = "Grok window has reset; run grok to refresh" }
+                grok.limits = l
+            } else {
+                grok.limits = AgentLimits(status: "Grok billing data unavailable")
+            }
+        }
+        if grok.present { grok.account = Grok.account(authURL: cfg.grokHome.appendingPathComponent("auth.json")) }
+        return grok
+    }
+
+    /// The model a Grok session ran, from its summary.json, cached by mtime.
+    func grokModel(sessionDir: String) -> String {
+        let path = sessionDir + "/summary.json"
+        let mtime = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        if let hit = grokModels[path], hit.mtime == mtime { return hit.model }
+        var model = "grok"
+        if mtime > 0, let data = FileManager.default.contents(atPath: path),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            let info = obj["info"] as? [String: Any]
+            let id = (obj["current_model_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (info?["model_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (info?["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let id { model = String(id.prefix(64)) }
+        }
+        grokModels[path] = (mtime, model)
+        return model
+    }
+
     func walk(_ root: URL, since: Double) -> [String] {
+        var newest: Double = 0
+        return walk(root, since: since, newest: &newest) { ($0 as NSString).pathExtension == "jsonl" }
+    }
+
+    /// `newest` sees every matching file, even ones too old to return.
+    func walk(_ root: URL, since: Double, newest: inout Double, match: (String) -> Bool) -> [String] {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
         // Symlinks are not followed: a loop must not hang the menu bar.
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
                                                      options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var out: [String] = []
-        for case let url as URL in e where url.pathExtension == "jsonl" {
+        for case let url as URL in e where match(url.lastPathComponent) {
             guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true,
-                  let m = v.contentModificationDate, m.timeIntervalSince1970 * 1000 >= since else { continue }
-            out.append(url.path)
+                  let m = v.contentModificationDate else { continue }
+            let ms = m.timeIntervalSince1970 * 1000
+            newest = max(newest, ms)
+            if ms >= since { out.append(url.path) }
         }
         return out
     }

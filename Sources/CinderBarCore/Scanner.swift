@@ -10,6 +10,17 @@ public struct LineYield {
 public struct ExtractState: Codable, Equatable, Sendable {
     public var lastTotal: TokenSplit?   // Codex's cumulative counter
     public var model = ""
+    /// Grok: each prompt's context-size range so far, keyed by promptId.
+    public var prompts: [String: PromptSpan]?
+    /// Grok's billing log: the plan named last, and the change that led to it.
+    public var tier: String?
+    public var planChange: PlanChange?
+}
+
+public struct PromptSpan: Codable, Equatable, Sendable {
+    public var ts: Double
+    public var min: Int
+    public var max: Int
 }
 
 public typealias Extractor = (_ line: [String: Any], _ state: inout ExtractState, _ session: String) -> LineYield
@@ -41,7 +52,8 @@ public final class Scanner {
         public var limits: AgentLimits?
     }
 
-    public func scan(path: String, needles: [Data], extract: Extractor, now: Double) -> FileResult? {
+    /// `session` names the points; by default it is the file name without `.jsonl`.
+    public func scan(path: String, needles: [Data], extract: Extractor, now: Double, session: String? = nil) -> FileResult? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
               let size = (attrs[.size] as? NSNumber)?.uint64Value,
               let mdate = attrs[.modificationDate] as? Date else {
@@ -74,7 +86,7 @@ public final class Scanner {
             entries[path] = e
             return FileResult(points: prune(e.points, now: now), limits: e.limits)
         }
-        let session = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
+        let session = session ?? (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
         var start = data.startIndex
         while start <= lastNewline {
             let end = data[start...lastNewline].firstIndex(of: 0x0A) ?? lastNewline

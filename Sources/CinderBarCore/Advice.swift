@@ -11,6 +11,9 @@ public struct Standing: Equatable, Sendable {
     public var fresh = false
     /// How long ago the plan figure was measured.
     public var ageMs: Double = 0
+    /// A snapshot figure (Grok) taken before the agent was used again: the
+    /// plan can only have gone up since, by an amount nobody measured.
+    public var outrun = false
     public init(agent: Agent) { self.agent = agent }
 }
 
@@ -36,8 +39,12 @@ public func advise(_ snap: Snapshot, enabled: [Agent], history: PaceHistory, pre
         // Claude is re-measured every few minutes, so an old figure means the
         // probe is failing. Codex only reports when Codex runs, so its last
         // figure stands until its window resets: usage cannot climb unmeasured
-        // on this Mac, only elsewhere.
-        let snapshotSource = agent == .codex
+        // on this Mac, only elsewhere. Grok logs its figure only when Grok
+        // starts, so it is a snapshot that can be outrun on this Mac too.
+        let snapshotSource = agent == .codex || agent == .grok
+        if agent == .grok, let m = st.plan?.measuredMs {
+            st.outrun = max(stats.lastUseMs, stats.lastMs) > m + 10 * 60_000
+        }
         st.fresh = st.live != nil && stats.limits.status == nil && (snapshotSource || st.ageMs < staleAfterMs)
         if let s = st.session {
             let rate = history.rate(agent, s.name, now: now)
@@ -49,7 +56,9 @@ public func advise(_ snap: Snapshot, enabled: [Agent], history: PaceHistory, pre
         out.standings[agent] = st
         // A reading taken a while ago may have been outrun elsewhere, so it
         // needs five times the margin before it is suggested.
-        let minBank = st.ageMs > 30 * 60_000 ? 0.10 : 0
+        // Grok's figure is never re-measured while it runs, so it always needs
+        // that margin, and more again once it has been used since.
+        let minBank = agent == .grok ? (st.outrun ? 0.25 : 0.10) : st.ageMs > 30 * 60_000 ? 0.10 : 0
         rows.append(GuideRow(id: agent.rawValue, live: st.live, fresh: st.fresh, blocked: st.blocked, minBank: minBank))
     }
     out.guidance = guidePick(rows, previous: previous)
@@ -71,7 +80,8 @@ public func todoLine(_ st: Standing, now: Double, calendar: Calendar = .current)
         }
         return TodoLine(headline: "NO PLAN READING", detail: "showing tokens only", tone: .unknown)
     }
-    let asOf = st.ageMs > 30 * 60_000 ? " · as of \(dayTime(now - st.ageMs, now: now, calendar: calendar))" : ""
+    let asOf = st.ageMs > 30 * 60_000
+        ? " · as of \(dayTime(now - st.ageMs, now: now, calendar: calendar))\(st.outrun ? ", used since" : "")" : ""
     switch live.stance {
     case .spent:
         return TodoLine(headline: "BACK AT THE RESET",
@@ -83,7 +93,7 @@ public func todoLine(_ st: Standing, now: Double, calendar: Calendar = .current)
                         tone: .warn)
     case .ahead:
         let pct = Int((live.banked * 100).rounded())
-        let approx = st.ageMs > 30 * 60_000 ? "~" : ""
+        let approx = st.ageMs > 30 * 60_000 || st.outrun ? "~" : ""
         return TodoLine(headline: "BANKED \(approx)\(pct)%", detail: "\(clockSpan(live.bankedMs)) in the bank\(asOf)", tone: .good)
     case .onPace:
         return TodoLine(headline: "ON PACE", detail: "within 5% of an even spend\(asOf)", tone: .calm)

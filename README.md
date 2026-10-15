@@ -9,8 +9,8 @@
 > original.
 
 A live thermal strip in the macOS menu bar for anyone paying for more than one
-AI subscription. It reads what **this Mac actually uses** (Claude Code and
-Codex), turns it into one heat map, and tells you **what to do**: which
+AI subscription. It reads what **this Mac actually uses** (Claude Code,
+Codex and Grok), turns it into one heat map, and tells you **what to do**: which
 subscription has budget in the bank, which one needs a rest and until when, and
 which one to reach for next.
 
@@ -19,14 +19,14 @@ which one to reach for next.
 ## The strip
 
 ```
-CLAUDE ◄── time ──┤ now ├── time ──► CODEX   CHIP
+CLAUDE ◄── time ──┤ now ├── time ──► CODEX │ GROK ──►   CHIP
 ```
 
 ![The strip, enlarged](docs/img/strip.png)
 
 Claude burns on the left and Codex on the right. The newest bucket of each
 sits against the centre divider, so the divider is always "now" and time
-radiates outward. Colour carries the token count on a ramp from cold ember
+radiates outward. Grok follows Codex behind a thin rule, newest on its left. Colour carries the token count on a ramp from cold ember
 through the agent's colour and amber to white-hot. Height is only a secondary
 swell. The thin line under each lane is its plan gauge, which turns amber when
 the plan is over pace and red when it is spent.
@@ -75,7 +75,14 @@ These are Burn Bar's rules, ported unchanged and covered by tests:
   within half an hour.
 - **A snapshot is not treated as exact.** Codex only reports its quota when
   Codex runs, so an older reading needs five times the margin and says when it
-  was measured (`BANKED ~44% · as of Thu 11:55 AM`).
+  was measured (`BANKED ~44% · as of Thu 11:55 AM`). Grok logs its quota only
+  when Grok starts, so it always needs that margin, and 25% once Grok has been
+  used since (`as of Sun 1:50 PM, used since`).
+- **A plan change is not a reset.** Moving from SuperGrok Plus to Heavy took
+  the weekly figure from 14% to 8% with the same reset, because the same week
+  was measured against a bigger pool. The window stays whole. Only the samples
+  from before the change are dropped, and the card says `upgraded to Heavy Mon
+  8:58 PM`.
 - **It does not flap.** The current pick keeps the job until another sub is
   clearly better.
 - **A lane you untick is left out**: no cells, no card, no advice.
@@ -144,8 +151,8 @@ defaults delete dev.cinderbar.CinderBar
 ```
 
 The first command removes the scan cache and the pace history. The second
-removes the SETUP preferences. Cinder Bar never writes to your Claude or Codex
-transcripts, so nothing else needs cleaning up.
+removes the SETUP preferences. Cinder Bar never writes to your Claude, Codex or
+Grok files, so nothing else needs cleaning up.
 
 If you deleted the app before step 1 and it still appears in Login Items,
 remove it there with the minus button.
@@ -161,6 +168,15 @@ remove it there with the minus button.
   events carry a cumulative counter, and Cinder Bar counts the deltas. The same
   events carry `rate_limits` (the 5-hour and weekly windows, and the plan),
   which is Codex's plan meter.
+- **Grok**: `$GROK_HOME`, `~/.grok` by default.
+  `sessions/**/updates.jsonl` carries `_meta.totalTokens`, the running context
+  size, for each `promptId`. Grok leaves no per-turn usage, so a prompt's burn
+  is estimated as the rise of that figure within the prompt. A prompt whose
+  figure does not change adds nothing. `summary.json` names the model. The
+  weekly credit figure and the plan (`SuperGrok Heavy` is shown as `HEAVY
+  PLAN`) come from the `billing: fetched credits config` lines in
+  `logs/unified.jsonl`. The card's account line is the newest sign-in's email
+  in `auth.json`.
 - **Claude limits**: Claude Code writes no quota into its transcripts, so Cinder Bar
   asks the endpoint that Claude Code's own `/usage` uses
   (`api.anthropic.com/api/oauth/usage`). It uses the sign-in that Claude Code
@@ -177,8 +193,11 @@ measured percentages that the burndown is drawn from.
 
 ## Privacy
 
-Cinder Bar reads your Claude and Codex transcripts on this Mac to count tokens. It
-keeps numbers, model names and message ids, never message text. The only
+Cinder Bar reads your Claude, Codex and Grok transcripts on this Mac to count tokens. It
+keeps numbers, model names and message ids, never message text. From Grok's
+`auth.json` it reads one field, the email, to label the card. The tokens in
+that file are never copied, logged or stored. **Account names** in SETUP hides
+the label for a screen share. The only
 network request it makes is the Claude limits probe described above. That
 request goes only to `api.anthropic.com`, using the token Claude Code already
 holds. The token is never stored, logged or refreshed, because refreshing it
@@ -188,8 +207,10 @@ would rotate Claude Code's own sign-in.
 
 Cinder Bar covers part of Burn Bar so far:
 
-- Lanes for Claude and Codex only. Grok, Kimi, Zcode and the local
-  Ollama/GPU lane are not ported yet.
+- Lanes for Claude, Codex and Grok. Kimi, Zcode and the local Ollama/GPU
+  lane are not ported yet.
+- Only the Grok card names its account so far. Burn Bar 2.5 also names the
+  Claude and Codex logins.
 - No ember flicker, impact shockwave or sparks yet. The strip redraws on
   every refresh but does not animate.
 - The burndown line is drawn from percentages Cinder Bar itself has measured, so it

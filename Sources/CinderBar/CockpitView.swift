@@ -81,7 +81,7 @@ struct CockpitView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("No lanes to show").font(.system(size: ui(13), weight: .semibold))
-            Text("Cinder Bar draws a lane for each AI it finds transcripts for: ~/.claude/projects and ~/.codex/sessions. Tick them in SETUP.")
+            Text("Cinder Bar draws a lane for each AI it finds transcripts for: ~/.claude/projects, ~/.codex/sessions and ~/.grok/sessions. Tick them in SETUP.")
                 .font(.system(size: ui(12))).foregroundStyle(.secondary)
         }
         .frame(width: cardWidth, alignment: .leading)

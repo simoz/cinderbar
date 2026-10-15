@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Agent: String, CaseIterable, Codable, Sendable, Identifiable {
-    case claude, codex
+    case claude, codex, grok
     public var id: String { rawValue }
     public var title: String { rawValue.uppercased() }
 }
@@ -30,6 +30,28 @@ public struct UsagePoint: Codable, Equatable, Sendable {
     public var session: String
     /// Dedupe key (Claude's message.id); nil when every point is distinct.
     public var key: String?
+}
+
+/// A plan change the provider reported inside the current window. The figures
+/// before it were measured against another pool, so they are not compared with
+/// the ones after it.
+public struct PlanChange: Codable, Equatable, Sendable {
+    public enum Direction: String, Codable, Sendable { case up, down, unknown }
+    public var from: String
+    public var to: String
+    public var atMs: Double
+    public var direction: Direction
+    public init(from: String, to: String, atMs: Double, direction: Direction) {
+        self.from = from; self.to = to; self.atMs = atMs; self.direction = direction
+    }
+    /// "upgraded to Heavy", "downgraded to Plus", "plan now Pro".
+    public var words: String {
+        switch direction {
+        case .up: return "upgraded to \(to)"
+        case .down: return "downgraded to \(to)"
+        case .unknown: return "plan now \(to)"
+        }
+    }
 }
 
 public enum LimitKind: String, Codable, Sendable { case session, plan, extra }
@@ -61,8 +83,9 @@ public struct AgentLimits: Codable, Equatable, Sendable {
     public var windows: [LimitReading] = []
     public var status: String?          // "Sign-in expired", an error, or nil
     public var plan: String?
-    public init(windows: [LimitReading] = [], status: String? = nil, plan: String? = nil) {
-        self.windows = windows; self.status = status; self.plan = plan
+    public var planChange: PlanChange?
+    public init(windows: [LimitReading] = [], status: String? = nil, plan: String? = nil, planChange: PlanChange? = nil) {
+        self.windows = windows; self.status = status; self.plan = plan; self.planChange = planChange
     }
     public var planWindow: LimitReading? { windows.first { $0.kind == .plan } }
     public var sessionWindow: LimitReading? { windows.first { $0.kind == .session } }
@@ -92,6 +115,11 @@ public struct AgentStats: Equatable, Sendable {
     public var lastMs: Double = 0
     public var peakBucket = 0
     public var limits = AgentLimits()
+    /// Newest write to any of the agent's files, however old. For a snapshot
+    /// quota (Grok) it says whether the agent was used after the figure was taken.
+    public var lastUseMs: Double = 0
+    /// Who the agent is signed in as: one display field, never a token.
+    public var account: String?
     public init(agent: Agent) { self.agent = agent }
 }
 

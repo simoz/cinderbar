@@ -260,6 +260,137 @@ test("claude usage reply: percentages to shares, unknown fields withheld") {
     check(ClaudeLimits.parse(Data("nope".utf8), measuredMs: NOW).status != nil)
 }
 
+print("grok")
+
+func grokUpdate(_ pid: String, _ total: Any, _ ts: Double) -> String {
+    #"{"method":"session/update","params":{"_meta":{"promptId":"\#(pid)","totalTokens":\#(total),"turnStartMs":\#(Int(ts))}}}"#
+}
+func grokBilling(_ ts: Double, tier: String?, pct: Any?, end: Double) -> String {
+    let tierPart = tier.map { #","subscriptionTier":"\#($0)""# } ?? ""
+    let pctPart = pct.map { #""creditUsagePercent":\#($0),"# } ?? ""
+    return #"{"ts":"\#(iso(ts))","msg":"billing: fetched credits config","ctx":{"config":{\#(pctPart)"currentPeriod":{"end":"\#(iso(end))"}}\#(tierPart)}}"#
+}
+func grokHome(sessions: [String: [String]], log: [String]? = nil, auth: String? = nil, model: String? = nil) throws -> URL {
+    let home = tmpDir()
+    for (name, lines) in sessions {
+        let dir = home.appendingPathComponent("sessions/\(name)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("updates.jsonl"), atomically: true, encoding: .utf8)
+        if let model { try #"{"current_model_id":"\#(model)"}"#.write(to: dir.appendingPathComponent("summary.json"), atomically: true, encoding: .utf8) }
+    }
+    if let log {
+        let dir = home.appendingPathComponent("logs")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try (log.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("unified.jsonl"), atomically: true, encoding: .utf8)
+    }
+    if let auth { try auth.write(to: home.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8) }
+    return home
+}
+func grokCollect(_ home: URL, now: Double) -> AgentStats {
+    var cfg = CollectorConfig()
+    cfg.claudeRoot = home.appendingPathComponent("none"); cfg.codexRoot = cfg.claudeRoot; cfg.grokHome = home
+    return Collector(cacheURL: nil).collect(cfg, now: now).agents[.grok]!
+}
+
+test("grok: a prompt counts the rise of its context, once, the largest") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let home = try grokHome(sessions: ["s1": [
+        grokUpdate("p1", 1000, now - 60e3), grokUpdate("p1", 1500, now - 60e3), grokUpdate("p1", 4000, now - 60e3),
+        grokUpdate("p2", 900, now - 30e3), grokUpdate("p2", 900, now - 30e3),           // flat: nothing
+        #"{"params":{"_meta":{"promptId":"p3","turnStartMs":\#(Int(now))}}}"#,           // no totalTokens: skipped, not 0
+        grokUpdate("p3", 5000, now - 10e3), grokUpdate("p3", 5200, now - 10e3),
+        grokUpdate("p4", true, now - 5e3), grokUpdate("p4", 9999, now - 5e3),            // a bool is not a count
+        "not json",
+    ]], model: "grok-4.6")
+    let g = grokCollect(home, now: now)
+    check(g.present)
+    eq(g.total, 3000 + 200)
+    eq(g.turns, 2)
+    eq(g.sessions, 1)
+    eq(g.byModel.first?.model, "grok-4.6")
+    check(g.lastUseMs > 0)
+}
+
+let PLAN_END = Date().timeIntervalSince1970 * 1000 + 2 * DAY
+
+test("grok billing: weekly figure, plan named, Plus to Heavy is an upgrade") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let log = [
+        "junk", #"{"ts":"\#(iso(now - 3 * DAY))","msg":"something else"}"#,
+        grokBilling(now - 2 * DAY, tier: "SuperGrok Plus", pct: 14.0, end: PLAN_END),
+        grokBilling(now - 2 * HOUR, tier: "SuperGrok Heavy", pct: 8.0, end: PLAN_END),
+        grokBilling(now - HOUR, tier: "SuperGrok Heavy", pct: 9.0, end: PLAN_END),
+    ]
+    let g = grokCollect(try grokHome(sessions: [:], log: log), now: now)
+    check(g.present)
+    eq(g.limits.plan, "Heavy")
+    near(g.limits.planWindow!.percent!, 0.09)
+    near(g.limits.planWindow!.windowMs!, WEEK)
+    check(abs(g.limits.planWindow!.measuredMs - (now - HOUR)) < 1000)
+    let c = g.limits.planChange!
+    eq(c.from, "Plus"); eq(c.to, "Heavy"); eq(c.direction, .up)
+    eq(c.words, "upgraded to Heavy")
+    check(g.limits.status == nil)
+}
+
+test("grok billing: a change before this week, a missing figure, a past reset") {
+    let now = Date().timeIntervalSince1970 * 1000
+    let old = [grokBilling(now - 9 * DAY, tier: "SuperGrok Heavy", pct: 50, end: now - 2 * DAY),
+               grokBilling(now - 6 * DAY, tier: "SuperGrok Plus", pct: nil, end: PLAN_END)]
+    let g = grokCollect(try grokHome(sessions: [:], log: old), now: now)
+    check(g.limits.planChange == nil)                    // it landed before this week opened
+    check(g.limits.planWindow!.percent == nil)           // unknown, never a green 0%
+    eq(Grok.tierShort("SuperGrok"), "SuperGrok")
+    eq(Grok.tierShort("Grok Lite"), "Lite")
+    let past = grokCollect(try grokHome(sessions: [:], log: [grokBilling(now - 8 * DAY, tier: nil, pct: 30, end: now - DAY)]), now: now)
+    check(past.limits.status?.contains("reset") == true)
+    check(past.limits.planWindow!.live(now: now) == nil)
+}
+
+test("grok account: newest sign-in's email, cleaned, no token leaks") {
+    let auth = #"{"a":{"email":"old@x.com","create_time":"2026-01-01","access_token":"SECRET-1"},"b":{"email":"new‮@x.com\n","create_time":"2026-09-01","refresh_token":"SECRET-2"},"c":"junk"}"#
+    let g = grokCollect(try grokHome(sessions: ["s": [grokUpdate("p", 1, 0)]], auth: auth), now: Date().timeIntervalSince1970 * 1000)
+    eq(g.account, "new@x.com")
+    check(!(g.account ?? "").contains("SECRET"))
+    eq(cleanAccount(String(repeating: "a", count: 100))?.count, 80)
+    check(cleanAccount(" \u{200B} ") == nil)
+}
+
+test("grok plan change keeps the window and drops the samples before it") {
+    var h = PaceHistory()
+    let reset = NOW + 3 * DAY
+    func lim(_ p: Double, _ t: Double, change: Double? = nil) -> AgentLimits {
+        AgentLimits(windows: [LimitReading(name: "Weekly", kind: .plan, percent: p, resetsMs: reset, windowMs: WEEK, measuredMs: t)],
+                    planChange: change.map { PlanChange(from: "Plus", to: "Heavy", atMs: $0, direction: .up) })
+    }
+    h.record(.grok, lim(0.12, NOW - 5 * HOUR)); h.record(.grok, lim(0.14, NOW - 3 * HOUR))
+    h.record(.grok, lim(0.08, NOW - HOUR, change: NOW - HOUR - 60e3))
+    eq(h.samples(.grok, "Weekly").map(\.percent), [0.08])
+    let live = LimitReading(name: "Weekly", kind: .plan, percent: 0.08, resetsMs: reset, windowMs: WEEK, measuredMs: NOW).live(now: NOW)!
+    near(live.elapsed, 4.0 / 7.0, 1e-9)                 // the week is still whole
+    check(!live.over)
+}
+
+test("grok snapshot: ten points of margin, twenty-five once used since") {
+    func snap(grokUsed: Double, usedSince: Bool) -> Snapshot {
+        var s = standingSnap(claude: 0.9, codex: 0.9, gone: 0.5)
+        var g = AgentStats(agent: .grok); g.present = true
+        g.limits = AgentLimits(windows: [LimitReading(name: "Weekly", kind: .plan, percent: grokUsed,
+                                                      resetsMs: NOW + WEEK / 2, windowMs: WEEK, measuredMs: NOW - 2 * HOUR)])
+        g.lastUseMs = usedSince ? NOW - HOUR : NOW - 3 * HOUR
+        s.agents[.grok] = g
+        return s
+    }
+    func pick(_ s: Snapshot) -> String { advise(s, enabled: Agent.allCases, history: PaceHistory(), previous: "", now: NOW).guidance.pick }
+    eq(pick(snap(grokUsed: 0.45, usedSince: false)), "")      // 5% banked: not enough for a snapshot
+    eq(pick(snap(grokUsed: 0.35, usedSince: false)), "grok")  // 15% banked
+    eq(pick(snap(grokUsed: 0.35, usedSince: true)), "")       // used since: needs 25%
+    let adv = advise(snap(grokUsed: 0.20, usedSince: true), enabled: Agent.allCases, history: PaceHistory(), previous: "", now: NOW)
+    eq(adv.guidance.pick, "grok")
+    let t = todoLine(adv.standings[.grok]!, now: NOW)
+    check(t.headline.hasPrefix("BANKED ~")); check(t.detail.hasSuffix(", used since"))
+}
+
 print("advice")
 
 func standingSnap(claude: Double, codex: Double, gone: Double) -> Snapshot {
@@ -294,7 +425,7 @@ test("a lane that is switched off gets no advice") {
 test("an old Codex reading still counts, with five times the margin; an old Claude one does not") {
     func snapAged(codexUsed: Double, age: Double) -> Snapshot {
         var s = standingSnap(claude: 0.9, codex: codexUsed, gone: 0.5)
-        for a in Agent.allCases { s.agents[a]!.limits.windows[0].measuredMs = NOW - age }
+        for a in [Agent.claude, .codex] { s.agents[a]!.limits.windows[0].measuredMs = NOW - age }
         return s
     }
     let threeDays = 3 * DAY

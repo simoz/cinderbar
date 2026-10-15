@@ -5,6 +5,7 @@ import CinderBarCore
 enum Palette {
     static let claude = NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1)   // Claude orange
     static let codex = NSColor(srgbRed: 0.169, green: 0.710, blue: 0.651, alpha: 1)    // Codex teal
+    static let grok = NSColor(srgbRed: 1.0, green: 0.42, blue: 0.706, alpha: 1)       // Burn Bar's Grok magenta
     static let ember = NSColor(srgbRed: 0.20, green: 0.09, blue: 0.06, alpha: 1)       // cold coal
     static let amber = NSColor(srgbRed: 1.0, green: 0.71, blue: 0.20, alpha: 1)
     static let whiteHot = NSColor(srgbRed: 1.0, green: 0.97, blue: 0.90, alpha: 1)
@@ -16,6 +17,7 @@ enum Palette {
     static let good = dynamic(dark: NSColor(srgbRed: 0.40, green: 0.80, blue: 0.45, alpha: 1),
                               light: NSColor(srgbRed: 0.10, green: 0.52, blue: 0.20, alpha: 1))
     static let codexText = dynamic(dark: codex, light: NSColor(srgbRed: 0.04, green: 0.50, blue: 0.45, alpha: 1))
+    static let grokText = dynamic(dark: grok, light: NSColor(srgbRed: 0.69, green: 0.16, blue: 0.43, alpha: 1))
     static let claudeText = dynamic(dark: claude, light: NSColor(srgbRed: 0.72, green: 0.33, blue: 0.20, alpha: 1))
 
     // Panel surfaces: a solid charcoal like Burn Bar's cockpit, or a plain
@@ -30,9 +32,17 @@ enum Palette {
         NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light }
     }
 
-    static func ns(_ agent: Agent) -> NSColor { agent == .claude ? claude : codex }
+    static func ns(_ agent: Agent) -> NSColor {
+        switch agent { case .claude: return claude; case .codex: return codex; case .grok: return grok }
+    }
     /// For text and strokes in the panel; the strip keeps the bright hues.
-    static func color(_ agent: Agent) -> Color { Color(nsColor: agent == .claude ? claudeText : codexText) }
+    static func color(_ agent: Agent) -> Color {
+        switch agent {
+        case .claude: return Color(nsColor: claudeText)
+        case .codex: return Color(nsColor: codexText)
+        case .grok: return Color(nsColor: grokText)
+        }
+    }
 
     /// Cold ember, agent colour, amber, white-hot. Both agents converge on the
     /// same white at the top: a maxed-out burst looks equally alarming whoever caused it.
