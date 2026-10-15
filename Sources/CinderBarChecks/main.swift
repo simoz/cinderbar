@@ -250,6 +250,46 @@ test("scanner: an append is read from the offset, a rewrite from the start") {
     eq(col.collect(cfg, now: now).agents[.codex]!.total, 10)
 }
 
+func jwt(_ claims: String) -> String {
+    let b = Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+    return "eyJhbGciOiJSUzI1NiJ9.\(b).SIGNATURE-SECRET"
+}
+
+test("accounts: Claude and Codex name the login, never a token") {
+    let dir = tmpDir()
+    let claudeJSON = dir.appendingPathComponent(".claude.json"), codexAuth = dir.appendingPathComponent("auth.json")
+    try #"{"oauthAccount":{"emailAddress":"me@work.com","displayName":"Me","accessToken":"SECRET-C"},"primaryApiKey":"SECRET-K"}"#
+        .write(to: claudeJSON, atomically: true, encoding: .utf8)
+    let idToken = jwt(#"{"email":"me@chatgpt.com\u202e","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}"#)
+    try #"{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"\#(idToken)","access_token":"SECRET-A","refresh_token":"SECRET-R"}}"#
+        .write(to: codexAuth, atomically: true, encoding: .utf8)
+    eq(Accounts.claude(claudeJSON), "me@work.com")
+    eq(Accounts.codex(codexAuth), "me@chatgpt.com")
+
+    // Through the collector, cached by mtime and refreshed when the file changes.
+    let proj = dir.appendingPathComponent("p"); try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
+    var cfg = CollectorConfig(); cfg.claudeRoot = proj; cfg.codexRoot = proj; cfg.grokHome = dir.appendingPathComponent("none")
+    cfg.claudeJSON = claudeJSON; cfg.codexAuth = codexAuth
+    let col = Collector(cacheURL: nil)
+    var snap = col.collect(cfg, now: NOW)
+    eq(snap.agents[.claude]!.account, "me@work.com"); eq(snap.agents[.codex]!.account, "me@chatgpt.com")
+    for a in [Agent.claude, .codex] { check(!(snap.agents[a]!.account ?? "").contains("SECRET")) }
+    try #"{"oauthAccount":{"displayName":"Only Name"}}"#.write(to: claudeJSON, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: claudeJSON.path)
+    snap = col.collect(cfg, now: NOW)
+    eq(snap.agents[.claude]!.account, "Only Name")
+
+    // API key sign-in, missing files, junk.
+    try #"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-SECRET"}"#.write(to: codexAuth, atomically: true, encoding: .utf8)
+    eq(Accounts.codex(codexAuth), "API key")
+    check(Accounts.claude(dir.appendingPathComponent("missing")) == nil)
+    try "not json".write(to: codexAuth, atomically: true, encoding: .utf8)
+    check(Accounts.codex(codexAuth) == nil)
+    try #"{"tokens":{"id_token":"garbage"}}"#.write(to: codexAuth, atomically: true, encoding: .utf8)
+    check(Accounts.codex(codexAuth) == nil)
+}
+
 test("claude usage reply: percentages to shares, unknown fields withheld") {
     let json = #"{"five_hour":{"utilization":42.0,"resets_at":"2026-10-11T15:00:00.000Z"},"seven_day":{"utilization":10,"resets_at":"2026-10-15T09:00:00Z"},"seven_day_opus":null,"seven_day_sonnet":{"utilization":0,"resets_at":null}}"#
     let l = ClaudeLimits.parse(Data(json.utf8), measuredMs: NOW)

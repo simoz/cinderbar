@@ -17,6 +17,16 @@ enum RenderMode {
             store.showingSetup = setup
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             write(store.stripImage, scale: 4, to: dir.appendingPathComponent("strip.png"))
+            // `--frames`: the strip's motion as a few stills, the first with every lane flashing.
+            if args.contains("--frames") {
+                for i in 0..<6 {
+                    var m = StripMotion(enabled: true, ember: Double(i) * 0.84, drift: Double(i) * 0.075, pulseMs: Double(i) * 300)
+                    if i < 2 { for a in store.lanes { m.flash[a] = i == 0 ? 1 : 0.4 } }
+                    let img = StripRenderer.image(snapshot: store.snapshot, lanes: store.lanes, standings: store.advice.standings,
+                                                  chip: store.chip, fault: false, motion: m)
+                    write(img, scale: 4, to: dir.appendingPathComponent("strip-frame-\(i).png"))
+                }
+            }
             for scheme in [ColorScheme.dark, .light] {
                 let view = CockpitView().environment(store)
                     .background(scheme == .dark ? Color(white: 0.13) : Color(white: 0.96))

@@ -40,6 +40,9 @@ struct SetupView: View {
                 SegmentRow(title: "Limits refresh", detail: "Asks the providers for fresh plan figures.", selection: $store.limitsRefreshSec,
                            options: [120, 300, 600, 1800]) { spanWords(Double($0) * 1000) }
                 RowDivider()
+                SwitchRow(title: "Ember motion", isOn: $store.stripMotion,
+                          detail: "Cells flicker and glow, a lane flashes when new burn lands. Off with Reduce Motion.")
+                RowDivider()
                 SwitchRow(title: "Suggest the next sub", isOn: $store.adviceChip,
                           detail: "With nothing to warn about, the chip names the subscription to use next.")
             }

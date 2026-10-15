@@ -6,6 +6,8 @@ public struct CollectorConfig: Sendable {
     public var claudeRoot = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects")
     public var codexRoot = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions")
     public var grokHome = Grok.home
+    public var claudeJSON = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude.json")
+    public var codexAuth = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/auth.json")
     public init() {}
 }
 
@@ -16,6 +18,7 @@ public final class Collector {
     let cacheURL: URL?
     var grokModels: [String: (mtime: Double, model: String)] = [:]
     var grokUsage: [String: (mtime: Double, size: Int, points: [UsagePoint])] = [:]
+    var accounts: [String: (mtime: Double, label: String?)] = [:]
 
     public init(cacheURL: URL?) {
         // The longest supported strip window is 24h; nothing older is kept.
@@ -46,6 +49,7 @@ public final class Collector {
         }
         var claude = aggregate(.claude, points: Array(claudeByKey.values) + claudeLoose, cfg: cfg, now: now)
         claude.present = FileManager.default.fileExists(atPath: cfg.claudeRoot.path)
+        if claude.present { claude.account = account(cfg.claudeJSON, Accounts.claude) }
         agents[.claude] = claude
 
         // Codex: a week back, because the newest rate_limits block is the plan
@@ -67,6 +71,7 @@ public final class Collector {
         var codex = aggregate(.codex, points: codexPoints, cfg: cfg, now: now)
         codex.present = FileManager.default.fileExists(atPath: cfg.codexRoot.path)
         if let l = codexLimits { codex.limits = l }
+        if codex.present { codex.account = account(cfg.codexAuth, Accounts.codex) }
         agents[.codex] = codex
 
         agents[.grok] = collectGrok(cfg, now: now, seen: &seen)
@@ -134,8 +139,18 @@ public final class Collector {
                 grok.limits = AgentLimits(status: "Grok billing data unavailable")
             }
         }
-        if grok.present { grok.account = Grok.account(authURL: cfg.grokHome.appendingPathComponent("auth.json")) }
+        if grok.present { grok.account = account(cfg.grokHome.appendingPathComponent("auth.json")) { Grok.account(authURL: $0) } }
         return grok
+    }
+
+    /// An identity file's label, re-read only when the file changes. Only the
+    /// label is held; the file's tokens are never kept.
+    func account(_ url: URL, _ read: (URL) -> String?) -> String? {
+        let mtime = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        if let hit = accounts[url.path], hit.mtime == mtime { return hit.label }
+        let label = mtime > 0 ? read(url) : nil
+        accounts[url.path] = (mtime, label)
+        return label
     }
 
     /// A usage.json's turns, cached by mtime and size. The file is rewritten

@@ -57,11 +57,7 @@ public enum Grok {
     /// The newest sign-in's email (else first name) from auth.json. Only that
     /// one field is kept: the same file holds tokens, which are dropped here.
     public static func account(authURL: URL? = nil) -> String? {
-        let url = authURL ?? home.appendingPathComponent("auth.json")
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = (attrs[.size] as? NSNumber)?.intValue, size <= 16 << 20,
-              let data = try? Data(contentsOf: url),
-              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        guard let obj = Accounts.object(authURL ?? home.appendingPathComponent("auth.json")) else { return nil }
         var best: (stamp: String, label: String)?
         for case let entry as [String: Any] in obj.values {
             guard let label = cleanAccount(entry["email"]) ?? cleanAccount(entry["first_name"]) else { continue }
