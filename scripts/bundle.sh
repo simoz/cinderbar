@@ -2,7 +2,7 @@
 # Builds "dist/Cinder Bar.app" from the Swift package. Needs only the Command Line Tools.
 set -eu
 cd "$(dirname "$0")/.."
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.3.0}"
 swift build -c release --product CinderBar
 APP="dist/Cinder Bar.app"
 rm -rf "$APP"

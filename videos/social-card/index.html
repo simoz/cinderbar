@@ -17,17 +17,18 @@
       #foot b { color: #f4f1ea; }
       #bar { position: absolute; left: 676px; top: 120px; width: 640px; height: 76px; border-radius: 16px 0 0 16px; background: rgba(30,28,34,0.95); border: 1px solid rgba(255,255,255,0.07); }
       #lane { position: absolute; left: 700px; top: 128px; width: 420px; height: 60px; }
-      .cell { position: absolute; width: 12px; border-radius: 3px; }
+      .cell { position: absolute; width: 8px; border-radius: 2px; }
+      .rule { position: absolute; top: 12px; width: 2px; height: 36px; border-radius: 1px; background: rgba(255,255,255,0.28); }
       #div { position: absolute; left: 0; top: 4px; width: 5px; height: 52px; border-radius: 3px; background: #fff8e6; }
       #chip { position: absolute; left: 1124px; top: 120px; height: 76px; display: flex; align-items: center; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 26px; color: #2bb5a6; white-space: nowrap; }
       #panel { position: absolute; left: 716px; top: 228px; width: 620px; height: 282px; border-radius: 22px 0 0 22px; background: #1a1a1e; border: 1px solid rgba(255,255,255,0.08); padding: 26px 30px; }
       .banner { border-radius: 14px; padding: 16px 20px; background: rgba(43,181,166,0.12); border: 2px solid rgba(43,181,166,0.45); }
       .banner .h { font-family: Montserrat, sans-serif; font-weight: 900; font-size: 36px; color: #2bb5a6; }
       .banner .d { font-size: 19px; color: #c9c4bb; margin-top: 4px; }
-      .row { display: flex; gap: 16px; margin-top: 18px; }
-      .mini { flex: 1; border-radius: 14px; background: #24242a; padding: 16px 18px; }
-      .mini .n { font-family: Montserrat, sans-serif; font-weight: 900; font-size: 26px; }
-      .mini .t { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 21px; margin-top: 8px; white-space: nowrap; }
+      .row { display: flex; gap: 12px; margin-top: 18px; }
+      .mini { flex: 1; border-radius: 14px; background: #24242a; padding: 16px 14px; }
+      .mini .n { font-family: Montserrat, sans-serif; font-weight: 900; font-size: 24px; }
+      .mini .t { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 16px; margin-top: 8px; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -42,13 +43,14 @@
       <div id="panel" class="clip" data-start="0" data-duration="1">
         <div class="banner"><div class="h">USE CODEX NEXT</div><div class="d">45% banked, about 3d 4h ahead</div></div>
         <div class="row">
-          <div class="mini"><div class="n" style="color: #d97757">CLAUDE</div><div class="t" style="color: #ffb533">COME BACK IN 2:41</div></div>
+          <div class="mini"><div class="n" style="color: #d97757">CLAUDE</div><div class="t" style="color: #ffb533">BACK IN 2:41</div></div>
           <div class="mini"><div class="n" style="color: #2bb5a6">CODEX</div><div class="t" style="color: #67cc73">BANKED ~45%</div></div>
+          <div class="mini"><div class="n" style="color: #ff6bb4">GROK</div><div class="t" style="color: #c9c4bb">ON PACE</div></div>
         </div>
       </div>
     </div>
     <script>
-      const C = { claude: [217, 119, 87], codex: [43, 181, 166] };
+      const C = { claude: [217, 119, 87], codex: [43, 181, 166], grok: [255, 107, 180] };
       const EMBER = [58, 26, 16], AMBER = [255, 181, 51], WHITE = [255, 248, 230];
       const mix = (a, b, f) => a.map((v, i) => Math.round(v + (b[i] - v) * f));
       function heat(t, agent) {
@@ -61,18 +63,22 @@
       }
       const CLAUDE = [0, 0.08, 0.16, 0.05, 0.28, 0.42, 0.33, 0.56, 0.5, 0.72, 0.88, 1.0];
       const CODEX = [0.62, 0.47, 0.32, 0.38, 0.22, 0.12, 0.17, 0.04, 0.08, 0, 0.03, 0];
+      const GROK = [0.4, 0.55, 0.18, 0, 0.06, 0.22, 0, 0, 0.03, 0, 0, 0];
+      const P = 11;
       const lane = document.getElementById("lane");
       const put = (vals, agent, x0) => vals.forEach((t, i) => {
         const d = document.createElement("div");
         d.className = "cell";
         const h = 52 * (0.72 + 0.28 * t);
-        d.style.left = (x0 + i * 16) + "px"; d.style.top = (30 - h / 2) + "px"; d.style.height = h + "px";
+        d.style.left = (x0 + i * P) + "px"; d.style.top = (30 - h / 2) + "px"; d.style.height = h + "px";
         d.style.background = t === 0 ? "rgba(58,26,16,0.75)" : heat(Math.max(0.08, t), agent);
         lane.appendChild(d);
       });
       put(CLAUDE, "claude", 0);
-      const dv = document.createElement("div"); dv.id = "div"; dv.style.left = (12 * 16 + 3) + "px"; lane.appendChild(dv);
-      put(CODEX, "codex", 12 * 16 + 14);
+      const dv = document.createElement("div"); dv.id = "div"; dv.style.left = (12 * P + 1) + "px"; lane.appendChild(dv);
+      put(CODEX, "codex", 12 * P + 10);
+      const rl = document.createElement("div"); rl.className = "rule"; rl.style.left = (24 * P + 11) + "px"; lane.appendChild(rl);
+      put(GROK, "grok", 24 * P + 19);
       window.__timelines["card"] = gsap.timeline({ paused: true });
     </script>
   </body>
