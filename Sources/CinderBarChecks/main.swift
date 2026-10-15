@@ -453,67 +453,6 @@ test("grok snapshot: ten points of margin, twenty-five once used since") {
     check(t.headline.hasPrefix("BANKED ~")); check(t.detail.hasSuffix(", used since"))
 }
 
-print("kimi")
-
-test("kimi: Kimi-model turns leave Claude's lane for their own") {
-    let now = Date().timeIntervalSince1970 * 1000
-    let dir = tmpDir().appendingPathComponent("p")
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let kimiLine = { (id: String, model: String, out: Int) in
-        #"{"type":"assistant","timestamp":"\#(iso(now - 30e3))","sessionId":"s2","message":{"id":"\#(id)","model":"\#(model)","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":500,"output_tokens":\#(out)}}}"#
-    }
-    let lines = [claudeLine("m1", now - 60e3, out: 5), kimiLine("k1", "kimi-k3", 40), kimiLine("k1", "kimi-k3", 90),
-                 kimiLine("k2", "Moonshot-v2", 1)]
-    try (lines.joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
-    var cfg = CollectorConfig()
-    cfg.claudeRoot = dir.deletingLastPathComponent(); cfg.codexRoot = dir.appendingPathComponent("none"); cfg.grokHome = cfg.codexRoot
-    let snap = Collector(cacheURL: nil).collect(cfg, now: now)
-    let claude = snap.agents[.claude]!, kimi = snap.agents[.kimi]!
-    eq(claude.total, 10 + 100 + 5)
-    eq(claude.byModel.map(\.model), ["claude-opus-5-5"])
-    eq(kimi.total, (10 + 90) + (10 + 1))                // the largest revision of k1, once
-    eq(kimi.split.cacheRead, 1000)
-    eq(kimi.turns, 2)
-    check(kimi.present)
-    check(!Collector(cacheURL: nil).collect({ var c = cfg; c.claudeRoot = cfg.codexRoot; return c }(), now: now).agents[.kimi]!.present)
-}
-
-let KIMI_USAGES = #"{"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"8","remaining":"92","resetTime":"2026-09-19T02:43:48.125750Z"}}],"usages":{"limit_5h":{"used_ratio":0,"reset_time":"2026-09-19T02:43:47Z"},"limit_month_total":{"used_ratio":0.0025,"reset_time":"2026-10-19T00:00:00Z"},"limit_month_code":{"used_ratio":0,"reset_time":"2026-10-19T00:00:00Z"}}}"#
-
-test("kimi /usages: the request window wins its span, the month is the plan") {
-    let l = Kimi.parseUsages(Data(KIMI_USAGES.utf8), measuredMs: NOW)
-    eq(l.windows.map(\.name), ["5-hour", "Monthly", "Monthly code"])
-    near(l.sessionWindow!.percent!, 0.08)
-    near(l.sessionWindow!.windowMs!, 5 * HOUR)
-    check(l.sessionWindow!.resetsMs != nil)               // fractional seconds past milliseconds still parse
-    eq(l.planWindow?.name, "Monthly")
-    near(l.planWindow!.percent!, 0.0025)
-    near(l.planWindow!.windowMs!, 30 * DAY)               // 19 Sep to 19 Oct
-    eq(l.windows[2].kind, .extra)
-}
-
-test("kimi /usages: clamped, junk dropped, nothing parsed is a status not a 0%") {
-    let junk = #"{"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"250"}},{"window":{"duration":60,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"0","used":"5"}},{"detail":{"limit":"10","used":"1"}},"x"],"usages":{"limit_month_total":{"used_ratio":"nonsense"}}}"#
-    let l = Kimi.parseUsages(Data(junk.utf8), measuredMs: NOW)
-    eq(l.windows.count, 1); eq(l.windows[0].percent, 1.0)
-    for bad in ["{}", #"{"limits":null,"usages":null}"#, "nope"] {
-        let b = Kimi.parseUsages(Data(bad.utf8), measuredMs: NOW)
-        check(b.windows.isEmpty && b.status != nil, bad)
-    }
-}
-
-test("kimi key and /me: env first, then ~/.env; only tier and owner kept") {
-    let dotenv = tmpDir().appendingPathComponent(".env")
-    try "OTHER=1\nexport KIMI_API_KEY=\"sk-from-file\"\n".write(to: dotenv, atomically: true, encoding: .utf8)
-    eq(Kimi.apiKey(env: ["KIMI_API_KEY": " sk-env "], dotenv: dotenv), "sk-env")
-    eq(Kimi.apiKey(env: [:], dotenv: dotenv), "sk-from-file")
-    check(Kimi.apiKey(env: [:], dotenv: dotenv.appendingPathExtension("missing")) == nil)
-    let me = Kimi.parseMe(Data(#"{"user_level_name":"Moderato","email":"me@x.com\u202e","nickname":"n","api_key":"sk-SECRET"}"#.utf8))
-    eq(me.tier, "Moderato"); eq(me.account, "me@x.com")
-    eq(Kimi.parseMe(Data(#"{"nickname":"nick"}"#.utf8)).account, "nick")
-    check(Kimi.isKimiModel("kimi-k3") && Kimi.isKimiModel("moonshot-v1") && !Kimi.isKimiModel("claude-kimi"))
-}
-
 print("advice")
 
 func standingSnap(claude: Double, codex: Double, gone: Double) -> Snapshot {

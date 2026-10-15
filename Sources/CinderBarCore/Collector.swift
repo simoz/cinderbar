@@ -44,16 +44,9 @@ public final class Collector {
                 claudeByKey[k] = p
             }
         }
-        // Kimi Code runs through Claude Code: its turns are in the same files, told apart by model.
-        let (kimiPoints, claudePoints) = (Array(claudeByKey.values) + claudeLoose).partitioned { Kimi.isKimiModel($0.model) }
-        var claude = aggregate(.claude, points: claudePoints, cfg: cfg, now: now)
+        var claude = aggregate(.claude, points: Array(claudeByKey.values) + claudeLoose, cfg: cfg, now: now)
         claude.present = FileManager.default.fileExists(atPath: cfg.claudeRoot.path)
         agents[.claude] = claude
-        // Kimi has no directory of its own: it is present once a Kimi turn is in
-        // the last day of transcripts (the app also counts a configured API key).
-        var kimi = aggregate(.kimi, points: kimiPoints, cfg: cfg, now: now)
-        kimi.present = !kimiPoints.isEmpty
-        agents[.kimi] = kimi
 
         // Codex: a week back, because the newest rate_limits block is the plan
         // meter even when Codex has not been used today.
@@ -240,13 +233,4 @@ public func aggregate(_ agent: Agent, points: [UsagePoint], cfg: CollectorConfig
         .sorted { $0.tokens > $1.tokens }
     s.peakBucket = s.buckets.max() ?? 0
     return s
-}
-
-extension Array {
-    /// (matching, rest), each in the original order.
-    func partitioned(_ isIn: (Element) -> Bool) -> ([Element], [Element]) {
-        var yes: [Element] = [], no: [Element] = []
-        for e in self { if isIn(e) { yes.append(e) } else { no.append(e) } }
-        return (yes, no)
-    }
 }

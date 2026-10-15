@@ -42,7 +42,6 @@ final class Store {
     var claudeLane: Bool { didSet { save("claudeLane", claudeLane); recompute() } }
     var codexLane: Bool { didSet { save("codexLane", codexLane); recompute() } }
     var grokLane: Bool { didSet { save("grokLane", grokLane); recompute() } }
-    var kimiLane: Bool { didSet { save("kimiLane", kimiLane); if kimiLane { refreshKimi(force: true) } else { recompute() } } }
     var showAccounts: Bool { didSet { save("showAccounts", showAccounts) } }
     var claudeLimits: Bool { didSet { save("claudeLimits", claudeLimits); if claudeLimits { refreshLimits(force: true) } else { claudeReading = nil; recompute() } } }
     var headline: Headline { didSet { save("headline", headline.rawValue) } }
@@ -67,11 +66,6 @@ final class Store {
     @ObservationIgnored var onStripChange: ((NSImage, String) -> Void)?
     @ObservationIgnored var onThemeChange: ((PanelTheme) -> Void)?
     @ObservationIgnored private var claudeReading: AgentLimits?
-    /// Kimi's quota from its own API; nil while no KIMI_API_KEY is set.
-    @ObservationIgnored private var kimiReading: Kimi.Reading?
-    @ObservationIgnored private var kimiMeAt: Date?
-    @ObservationIgnored private var lastKimiFetch: Date?
-    @ObservationIgnored private var kimiTask: Task<Void, Never>?
     @ObservationIgnored private var dismissed: [Agent: (stage: Int, reset: Double)] = [:]
     @ObservationIgnored private let box: CollectorBox
     @ObservationIgnored private let historyURL: URL
@@ -86,7 +80,7 @@ final class Store {
         let d = UserDefaults.standard
         d.register(defaults: [
             "windowMinutes": 360, "buckets": 12, "refreshSec": 5, "limitsRefreshSec": 300,
-            "claudeLane": true, "codexLane": true, "grokLane": true, "kimiLane": true, "showAccounts": true, "claudeLimits": true, "headline": "budget",
+            "claudeLane": true, "codexLane": true, "grokLane": true, "showAccounts": true, "claudeLimits": true, "headline": "budget",
             "showSessionWindows": false, "adviceChip": true, "glow": "overPace", "theme": "dark",
         ])
         windowMinutes = d.integer(forKey: "windowMinutes")
@@ -96,7 +90,6 @@ final class Store {
         claudeLane = d.bool(forKey: "claudeLane")
         codexLane = d.bool(forKey: "codexLane")
         grokLane = d.bool(forKey: "grokLane")
-        kimiLane = d.bool(forKey: "kimiLane")
         showAccounts = d.bool(forKey: "showAccounts")
         claudeLimits = d.bool(forKey: "claudeLimits")
         headline = Headline(rawValue: d.string(forKey: "headline") ?? "") ?? .budget
@@ -132,7 +125,7 @@ final class Store {
     }
 
     func laneOn(_ a: Agent) -> Bool {
-        switch a { case .claude: return claudeLane; case .codex: return codexLane; case .grok: return grokLane; case .kimi: return kimiLane }
+        switch a { case .claude: return claudeLane; case .codex: return codexLane; case .grok: return grokLane }
     }
 
     var burning: Agent? {
@@ -151,9 +144,6 @@ final class Store {
                 if let last = self.lastLimitsFetch, Date().timeIntervalSince(last) < Double(self.limitsRefreshSec) {} else {
                     self.refreshLimits(force: true)
                 }
-                if let last = self.lastKimiFetch, Date().timeIntervalSince(last) < Double(self.limitsRefreshSec) {} else {
-                    self.refreshKimi(force: true)
-                }
                 try? await Task.sleep(for: .seconds(max(2, self.refreshSec)))
             }
         }
@@ -170,7 +160,6 @@ final class Store {
             stats.limits = c
             snap.agents[.claude] = stats
         }
-        applyKimi(&snap)
         snapshot = snap
         for a in [Agent.codex, .grok] {
             if let l = snap.agents[a]?.limits, !l.windows.isEmpty { history.record(a, l) }
@@ -182,49 +171,6 @@ final class Store {
     func panelOpened() {
         Task { await refresh() }
         refreshLimits(force: false)
-        refreshKimi(force: false)
-    }
-
-    /// A machine set up for Kimi shows its lane even before a Kimi turn today.
-    private func applyKimi(_ snap: inout Snapshot) {
-        guard let k = kimiReading, var stats = snap.agents[.kimi] else { return }
-        stats.limits = k.limits
-        stats.account = k.account
-        stats.present = stats.present || !k.limits.windows.isEmpty || k.limits.plan != nil
-        snap.agents[.kimi] = stats
-    }
-
-    /// Kimi's /usages on the limits cadence; /me (tier, account) twice a day.
-    func refreshKimi(force: Bool) {
-        guard kimiLane, kimiTask == nil else { return }
-        if !force, let last = lastKimiFetch, Date().timeIntervalSince(last) < 60 { return }
-        lastKimiFetch = Date()
-        let wantMe = kimiMeAt.map { Date().timeIntervalSince($0) > 12 * 3600 } ?? true
-        kimiTask = Task { [weak self] in
-            let reading = await Kimi.fetch(me: wantMe)
-            guard let self else { return }
-            self.kimiTask = nil
-            guard var r = reading else { self.kimiReading = nil; self.recompute(); return }
-            let held = self.kimiReading
-            if wantMe, r.limits.plan != nil || r.account != nil { self.kimiMeAt = Date() } else {
-                r.limits.plan = r.limits.plan ?? held?.limits.plan
-                r.account = r.account ?? held?.account
-            }
-            // A failed probe keeps the last good figures, flagged with the reason.
-            if r.limits.windows.isEmpty, let held, !held.limits.windows.isEmpty {
-                var keep = held
-                keep.limits.status = r.limits.status
-                r = keep
-            } else if !r.limits.windows.isEmpty {
-                self.history.record(.kimi, r.limits)
-                self.saveHistory()
-            }
-            self.kimiReading = r
-            var snap = self.snapshot
-            self.applyKimi(&snap)
-            self.snapshot = snap
-            self.recompute()
-        }
     }
 
     func refreshLimits(force: Bool) {

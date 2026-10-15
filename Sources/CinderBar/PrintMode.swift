@@ -17,11 +17,6 @@ enum PrintMode {
             Task.detached {
                 let l = await ClaudeLimits.fetch()
                 snap.agents[.claude]?.limits = l
-                if let k = await Kimi.fetch() {
-                    snap.agents[.kimi]?.limits = k.limits
-                    snap.agents[.kimi]?.account = k.account
-                    snap.agents[.kimi]?.present = true
-                }
                 sem.signal()
             }
             sem.wait()

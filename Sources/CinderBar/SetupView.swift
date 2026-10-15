@@ -17,8 +17,6 @@ struct SetupView: View {
                     RowDivider()
                     laneRow(.grok, isOn: $store.grokLane)
                     RowDivider()
-                    laneRow(.kimi, isOn: $store.kimiLane)
-                    RowDivider()
                     SwitchRow(title: "Account names", isOn: $store.showAccounts,
                               detail: "Each card names the login it reads. Turn off for a screen share.")
                 }
@@ -75,7 +73,7 @@ struct SetupView: View {
     private func laneRow(_ agent: Agent, isOn: Binding<Bool>) -> some View {
         let present = store.snapshot.agents[agent]?.present ?? false
         let note: String = {
-            guard present else { return agent == .kimi ? "No Kimi turns in Claude Code, no KIMI_API_KEY" : "No transcripts on this Mac" }
+            guard present else { return "No transcripts on this Mac" }
             guard let st = store.advice.standings[agent] else { return "Hidden" }
             return todoLine(st, now: Date().timeIntervalSince1970 * 1000).headline.capitalized
         }()

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Agent: String, CaseIterable, Codable, Sendable, Identifiable {
-    case claude, codex, grok, kimi
+    case claude, codex, grok
     public var id: String { rawValue }
     public var title: String { rawValue.uppercased() }
 }

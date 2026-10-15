@@ -10,7 +10,7 @@
 
 A live thermal strip in the macOS menu bar for anyone paying for more than one
 AI subscription. It reads what **this Mac actually uses** (Claude Code,
-Codex, Grok and Kimi), turns it into one heat map, and tells you **what to do**: which
+Codex and Grok), turns it into one heat map, and tells you **what to do**: which
 subscription has budget in the bank, which one needs a rest and until when, and
 which one to reach for next.
 
@@ -19,14 +19,14 @@ which one to reach for next.
 ## The strip
 
 ```
-CLAUDE ◄── time ──┤ now ├── time ──► CODEX │ GROK ──► │ KIMI ──►   CHIP
+CLAUDE ◄── time ──┤ now ├── time ──► CODEX │ GROK ──►   CHIP
 ```
 
 ![The strip, enlarged](docs/img/strip.png)
 
 Claude burns on the left and Codex on the right. The newest bucket of each
 sits against the centre divider, so the divider is always "now" and time
-radiates outward. Grok and Kimi follow Codex behind thin rules, newest on their left. Colour carries the token count on a ramp from cold ember
+radiates outward. Grok follows Codex behind a thin rule, newest on its left. Colour carries the token count on a ramp from cold ember
 through the agent's colour and amber to white-hot. Height is only a secondary
 swell. The thin line under each lane is its plan gauge, which turns amber when
 the plan is over pace and red when it is spent.
@@ -185,18 +185,6 @@ remove it there with the minus button.
   PLAN`) come from the `billing: fetched credits config` lines in
   `logs/unified.jsonl`. The card's account line is the newest sign-in's email
   in `auth.json`.
-- **Kimi**: Kimi Code speaks the Anthropic API, so run through Claude Code its
-  turns land in `~/.claude/projects` with Claude's. A turn whose model starts
-  with `kimi` or `moonshot` is moved to the Kimi lane, so Kimi's spend is not
-  billed to Claude. The quota comes from Kimi's own API with `KIMI_API_KEY`,
-  taken from the environment or else from a `KIMI_API_KEY=` line in `~/.env`
-  (an app opened from Finder sees no shell environment). `GET /usages` gives
-  the request window that cuts you off (`5-hour`) and the monthly credit
-  figures. The monthly total is the plan window, and the monthly code figure
-  rides along. `GET /me` gives the plan tier and the key owner's email for the
-  account line, and is asked twice a day. `KIMI_BASE_URL` overrides
-  `https://api.kimi.com/coding/v1`. With no key the lane shows tokens only, and
-  it appears once a Kimi turn is in the last day of transcripts or a key is set.
 - **Claude limits**: Claude Code writes no quota into its transcripts, so Cinder Bar
   asks the endpoint that Claude Code's own `/usage` uses
   (`api.anthropic.com/api/oauth/usage`). It uses the sign-in that Claude Code
@@ -217,22 +205,20 @@ Cinder Bar reads your Claude, Codex and Grok transcripts on this Mac to count to
 keeps numbers, model names and message ids, never message text. From Grok's
 `auth.json` it reads one field, the email, to label the card. The tokens in
 that file are never copied, logged or stored. **Account names** in SETUP hides
-the label for a screen share. It makes two kinds of network request. The
-Claude limits probe described above goes only to `api.anthropic.com`, using the
-token Claude Code already holds. That token is never stored, logged or
-refreshed, because refreshing it would rotate Claude Code's own sign-in. When
-`KIMI_API_KEY` is set, Kimi's `/usages` and `/me` are asked with it, and only
-at the Kimi base URL. The key is never stored or logged. From `/me` only the
-plan tier and the email (else the nickname) are kept.
+the label for a screen share. The only
+network request it makes is the Claude limits probe described above. That
+request goes only to `api.anthropic.com`, using the token Claude Code already
+holds. The token is never stored, logged or refreshed, because refreshing it
+would rotate Claude Code's own sign-in.
 
 ## Differences from Burn Bar
 
 Cinder Bar covers part of Burn Bar so far:
 
-- Lanes for Claude, Codex, Grok and Kimi. Zcode and the local Ollama/GPU
+- Lanes for Claude, Codex and Grok. Kimi, Zcode and the local Ollama/GPU
   lane are not ported yet.
-- Only the Grok and Kimi cards name their account so far. Burn Bar 2.5 also
-  names the Claude and Codex logins.
+- Only the Grok card names its account so far. Burn Bar 2.5 also names the
+  Claude and Codex logins.
 - No ember flicker, impact shockwave or sparks yet. The strip redraws on
   every refresh but does not animate.
 - The burndown line is drawn from percentages Cinder Bar itself has measured, so it
